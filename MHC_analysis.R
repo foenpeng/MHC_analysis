@@ -34,6 +34,7 @@ lapply(fits,plot,2)
 
 par(mfrow=c(3,2),mar=c(1,1,1,1))
 sapply(unique(MHC_meta_cleaned$site_ID),function(z) plot(y~x,data=MHC_meta_cleaned[J(z),]))
+
 # alternative way to run regression
 #MHC_meta[,summary(lm(y~x+sqx,na.action=na.omit))$coefficients[3,"Pr(>|t|)", drop=F],by=site_name]
 #MHC_meta_cleaned[,as.list(coef(lm(y ~ x + sqx,na.action=na.omit))), by="site_ID"]
