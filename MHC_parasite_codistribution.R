@@ -108,8 +108,12 @@ for(lake in Lake_name){
            cl.lim=c(-1,1), col=colorRampPalette(c("blue","white","red"))(200))
 }
 
-names(sort(table(unlist(Parasite_name_lake)),decreasing=TRUE)[1:10])
+Parasite_reg<-names(sort(table(unlist(Parasite_name_lake)),decreasing=TRUE)[1:10])
 sort(table(unlist(MHC_name_lake)),decreasing=TRUE)[1:10]
+
+for(par in Parasite_reg){
+  
+}
 
 
 # cormat : matrix of the correlation coefficients
