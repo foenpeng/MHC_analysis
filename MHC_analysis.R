@@ -16,7 +16,7 @@ MHC_meta_cleaned[,site_ID:=unlist(lapply(SAMPLE_ID, function(x) strsplit(x, "(?=
 # remove the rows that does not contain information for regression
 MHC_meta_cleaned<-na.omit(MHC_meta_cleaned, cols=c("x", "Parasite.richness"))
 # remove lakes with too few data for regression
-MHC_meta_cleaned<-MHC_meta_cleaned[,if(.N>1) .SD, by="site_ID"]
+MHC_meta_cleaned<-MHC_meta_cleaned[,if(.N>1) .SD, by="site_ID"][DEPTH_ALLELES>300]
 
 y_list<-c("Parasite.richness","parasiteSWdiversity","RelativeInfectionIntensity")
 res_combined<-list()
@@ -61,8 +61,7 @@ sapply(unique(MHC_meta_cleaned$site_ID),function(z) plot(y~x,data=MHC_meta_clean
 # quadratic regression for all data
 summary(lm(Parasite.richness~x+sqx, data=MHC_meta_cleaned))
 ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=Parasite.richness)) + 
-  geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2))
-
+  geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2)) 
 
 MHC_meta_cleaned[,pop_mean_rich:=mean(Parasite.richness,na.rm=T),by="site_ID"]
 MHC_meta_cleaned[,residual_rich:=Parasite.richness-pop_mean_rich]
@@ -70,25 +69,28 @@ summary(lm(residual_rich~x+sqx, data=MHC_meta_cleaned))
 ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=residual_rich)) + 
   geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2))
 
-##### regression on lake parameter
+model1 <- lm(Parasite.richness~x+sqx +site_ID + x*site_ID + sqx*site_ID + log_std_length, data=MHC_meta_cleaned)
+stepAIC(model1)
+anova(model1)
 
+##### regression on lake parameter
 lake_info<-MHC_meta_cleaned[,lapply(.SD, function(x) mean(x, na.rm=T)),.SDcols=c(23:26,28,179,116:118,13),by=site_ID]
-lake_coef_data<-lake_info[t.sqx_all,on="site_ID"]
+lake_coef_data<-lake_info[coef.sqx_all,on="site_ID"]
 lambda_list<-c("lambda.richness","lambda.SW","lambda.Intensity")
 setnames(lake_coef_data,c("i.Parasite.richness","i.parasiteSWdiversity","i.RelativeInfectionIntensity"), lambda_list)
-
-# examine effect of lake parameter on parasite diversity
-lake_fits<-sapply(colnames(lake_coef_data)[2:6],function(x) lm(paste0("Parasite.richness","~",x),data=lake_coef_data))
-print(sapply(lake_fits, function(x)c(p=round(summary(x)$coef[2,4],3),coef=summary(x)$coef[2,1], t=round(summary(x)$coef[2,3],3),rsq=summary(x)$r.squared)))
-
-
 
 for(i in lambda_list){
   #print(sapply(colnames(lake_coef_data)[2:6],function(x) summary(lm(paste0(i,"~",x),data=lake_coef_data))$coefficients[2,c("Estimate","Pr(>|t|)"), drop=F]))
   lake_fits<-sapply(colnames(lake_coef_data)[2:8],function(x) lm(paste0(i,"~",x),data=lake_coef_data))
   print(sapply(lake_fits, function(x)c(p=round(summary(x)$coef[2,4],3),coef=summary(x)$coef[2,1], t=round(summary(x)$coef[2,3],3),rsq=summary(x)$r.squared)))
 }
+summary(lm(lambda.richness~elevation_m + maximum_depth_m  +surface_area_ha +distance_from_ocean_km + benthicdiet.score + Parasite.richness, data=lake_coef_data  ))
 
+# examine effect of lake parameter on parasite diversity
+lake_fits<-sapply(colnames(lake_coef_data)[2:6],function(x) lm(paste0("Parasite.richness","~",x),data=lake_coef_data))
+print(sapply(lake_fits, function(x)c(p=round(summary(x)$coef[2,4],3),coef=summary(x)$coef[2,1], t=round(summary(x)$coef[2,3],3),rsq=summary(x)$r.squared)))
+
+# examine effect of lake parameter on MHC diversity
 
 
 ################## Plot results #####################
