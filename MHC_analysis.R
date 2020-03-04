@@ -18,6 +18,18 @@ MHC_meta_cleaned<-na.omit(MHC_meta_cleaned, cols=c("x", "Parasite.richness"))
 # remove lakes with too few data for regression
 MHC_meta_cleaned<-MHC_meta_cleaned[,if(.N>1) .SD, by="site_ID"][DEPTH_ALLELES>300]
 
+# quadratic regression for all data
+summary(lm(Parasite.richness~x+sqx, data=MHC_meta_cleaned))
+ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=Parasite.richness)) + 
+  geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2)) 
+
+MHC_meta_cleaned[,pop_mean_rich:=mean(Parasite.richness,na.rm=T),by="site_ID"]
+MHC_meta_cleaned[,residual_rich:=Parasite.richness-pop_mean_rich]
+summary(lm(residual_rich~x+sqx, data=MHC_meta_cleaned))
+ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=residual_rich)) + 
+  geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2))
+
+
 y_list<-c("Parasite.richness","parasiteSWdiversity","RelativeInfectionIntensity")
 res_combined<-list()
 for(y_var in y_list){
@@ -58,16 +70,7 @@ sapply(unique(MHC_meta_cleaned$site_ID),function(z) plot(y~x,data=MHC_meta_clean
 #MHC_meta_cleaned[,as.list(coef(lm(y ~ x + sqx,na.action=na.omit))), by="site_ID"]
 
 
-# quadratic regression for all data
-summary(lm(Parasite.richness~x+sqx, data=MHC_meta_cleaned))
-ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=Parasite.richness)) + 
-  geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2)) 
 
-MHC_meta_cleaned[,pop_mean_rich:=mean(Parasite.richness,na.rm=T),by="site_ID"]
-MHC_meta_cleaned[,residual_rich:=Parasite.richness-pop_mean_rich]
-summary(lm(residual_rich~x+sqx, data=MHC_meta_cleaned))
-ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=residual_rich)) + 
-  geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2))
 
 model1 <- lm(Parasite.richness~x+sqx +site_ID + x*site_ID + sqx*site_ID + log_std_length, data=MHC_meta_cleaned)
 stepAIC(model1)

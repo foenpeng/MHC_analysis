@@ -2,10 +2,11 @@ library(data.table)
 library(glmnet)
 library(Hmisc)
 library(corrplot)
+library(ecodist)
 
 setwd("/Users/pengfoen/OneDrive - University of Connecticut/MHC")
 MHC_protein <- fread("./7. Metadata and MHC data combined/7.0.BayesProteinsMergedMetadata.csv")
-MHC_gene <- fread("./7. Metadata and MHC data combined/7.0.BayesGenotypesMergedMetadata.csv")
+#MHC_gene <- fread("./7. Metadata and MHC data combined/7.0.BayesGenotypesMergedMetadata.csv")
 
 MHC_name_all<-colnames(MHC_protein)[7:1210]
 Parasite_name_all<-colnames(MHC_protein)[1271:1311]
@@ -15,7 +16,9 @@ Lake_name_all<-unlist(unique(MHC_protein[,"site_name"]))
 # remove rows with no parasite info and lakes with too few samples
 MHC_protein_cleaned<-na.omit(MHC_protein, cols=c("Parasite.richness"))
 anyNA(MHC_protein_cleaned[,..Parasite_name_all])
-MHC_protein_cleaned<-MHC_protein_cleaned[,if(.N>1) .SD, by="site_name"]
+# create site_ID from sample ID, becasue site name has many NAs (It turned out these NAs are the ones without metadata)
+MHC_protein_cleaned[,site_ID:=unlist(lapply(SAMPLE_ID, function(x) strsplit(x, "(?=[A-Za-z])(?<=[0-9])|(?=[0-9])(?<=[A-Za-z])", perl=TRUE)[[1]][1]))]
+MHC_protein_cleaned<-MHC_protein_cleaned[,if(.N>1) .SD, by="site_ID"][DEPTH_ALLELES>300]
 Lake_name<-unlist(unique(MHC_protein_cleaned[,"site_name"]))
 
 { 
@@ -69,6 +72,11 @@ MHC_name<-colnames(temp_MHC)[!apply(temp_cor,2,function(x) any(abs(x) > 0.99))]
   MHC_prevalence_bylake[,lapply(.SD, function(x) sum(x>0.1 & x <0.9)),.SDcols=2:27]
   setnames(MHC_prevalence_bylake,"site_name","MHC_name")
 }
+
+############ Mantel test of matrix distance between parasite and MHC ################
+P_dist<-dist(t(as.matrix(Parasite_prevalence_bylake[,-1],label=TRUE)))
+M_dist<-dist(t(as.matrix(MHC_prevalence_bylake[,-1],label=TRUE)))
+mantel(P_dist~M_dist)
 
 ############ Regression ############
 
@@ -174,14 +182,16 @@ for(comb in freq_combination_df[,rn]){
 
 div_per_res<-as.data.frame(do.call(rbind, anova_res))
 colnames(div_per_res)<-c("D_a","D_as","p_a","p_as")
+div_per_res$p_a.adjust<-p.adjust(div_per_res$p_a,method = "fdr", n=nrow(div_per_res))
+div_per_res$p_as.adjust<-p.adjust(div_per_res$p_as,method = "fdr", n=nrow(div_per_res))
 div_per_res$col<-"black"
-div_per_res$log_D_a<-div_per_res$D_a
-div_per_res$log_D_as<-div_per_res$D_as
-div_per_res[which(div_per_res$p_a<0.05 & div_per_res$p_as<0.05),"col"]<-"purple"
-div_per_res[which(div_per_res$p_a<0.05 & div_per_res$p_as>=0.05),"col"]<-"red"
-div_per_res[which(div_per_res$p_a>=0.05 & div_per_res$p_as<0.05),"col"]<-"blue"
+div_per_res$log_D_a<-log10(div_per_res$D_a*100)
+div_per_res$log_D_as<-log10(div_per_res$D_as*100)
+div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"purple"
+div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust>=0.05),"col"]<-"red"
+div_per_res[which(div_per_res$p_a.adjust>=0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"blue"
 
-plot(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"],ylim=c(0,0.5),xlim=c(0,0.5), col=div_per_res$col, ylab = "allele*site deviance %", xlab="allele deviance %")
+plot(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"],ylim=c(-1,2),xlim=c(-1,2), col=div_per_res$col, ylab = "allele*site deviance %", xlab="allele deviance %")
 #abline(lm(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"]))
 abline(0,1)
 
