@@ -3,6 +3,8 @@ library(glmnet)
 library(Hmisc)
 library(corrplot)
 library(ecodist)
+library(reshape2)
+library(seriation)
 
 setwd("/Users/pengfoen/OneDrive - University of Connecticut/MHC")
 MHC_protein <- fread("./7. Metadata and MHC data combined/7.0.BayesProteinsMergedMetadata.csv")
@@ -77,8 +79,75 @@ MHC_name<-colnames(temp_MHC)[!apply(temp_cor,2,function(x) any(abs(x) > 0.99))]
 P_dist<-dist(t(as.matrix(Parasite_prevalence_bylake[,-1],label=TRUE)))
 M_dist<-dist(t(as.matrix(MHC_prevalence_bylake[,-1],label=TRUE)))
 mantel(P_dist~M_dist)
+dist_table<-data.table(Parasite=as.vector(P_dist), MHC=as.vector(M_dist))
+
+## plot matrix
+set.seed(2)
+o <- seriate(as.matrix(P_dist), method="BEA_TSP")
+
+P_longData<-melt(as.matrix(P_dist))
+P_longData<-P_longData[P_longData$value!=0,]
+
+P_longData$Var1 <- factor(P_longData$Var1, levels=names(unlist(o[[1]][]))) 
+P_longData$Var2 <- factor(P_longData$Var2, levels=names(unlist(o[[2]][])))
+
+M_longData<-melt(as.matrix(M_dist))
+M_longData<-M_longData[M_longData$value!=0,]
+
+M_longData$Var1 <- factor(M_longData$Var1, levels=names(unlist(o[[1]][]))) 
+M_longData$Var2 <- factor(M_longData$Var2, levels=names(unlist(o[[2]][])))
+
+png("./Figures/fig3a_P.png",res=300, height = 800, width = 1000)
+ggplot(P_longData, aes(x = Var2, y = Var1)) + 
+  geom_raster(aes(fill=value)) + 
+  scale_fill_gradient(low="grey90", high="grey20") +
+  labs(x="",y="",title="Distance matrix of parasite") +
+  theme_bw() + theme(axis.text.x=element_blank(),
+                     axis.text.y=element_blank(),
+                     axis.ticks = element_blank(),
+                     legend.title=element_blank(),
+                     plot.title=element_text(size=11,hjust = 0.5))
+dev.off()
+
+png("./Figures/fig3a_M.png",res=300, height = 800, width = 1000)
+ggplot(M_longData, aes(x = Var2, y = Var1)) + 
+  geom_raster(aes(fill=value)) + 
+  scale_fill_gradient(low="grey90", high="grey20") +
+  labs(x="",y="",title="Distance matrix of MHC alleles") +
+  theme_bw() + theme(axis.text.x=element_blank(),
+                     axis.text.y=element_blank(),
+                     axis.ticks = element_blank(),
+                     legend.title=element_blank(),
+                     plot.title=element_text(size=11,hjust = 0.5))
+dev.off()
+
+
+png("./Figures/fig3b.png",res=300, width=1000,height = 800)
+ggplot(dist_table, aes(x=MHC, y =Parasite)) + 
+  geom_point(size=0.3, color="grey30") +
+  stat_ellipse() +  
+  labs(x = "Value in MHC distance matrix", y = "Value in parasite distance matrix") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous(limits = c(0,3)) + 
+  scale_y_continuous(limits = c(0,3))
+dev.off()
 
 ############ Regression ############
+
+# regression between lake averages of MHC and parasite
+MHC_protein_cleaned[,N_aas:=rowSums(.SD>0),.SDcols=MHC_name_all]
+MHC_parasite_avg<-MHC_protein_cleaned[,.("avg_MHC"=mean(N_aas),"avg_parasite"=mean(Parasite.richness)),by="site_ID"]
+summary(lm(avg_parasite~avg_MHC,data=MHC_parasite_avg))
+
+png("./Figures/fig1b.png",res=300, width=1000,height = 800)
+ggplot(MHC_parasite_avg, aes(x=avg_MHC, y =avg_parasite)) + 
+  geom_point(size=0.5) +
+  stat_smooth(method="lm",formula= y~x, color = "black", size= 1) + 
+  labs(x = "Mean number of MHC allelels", y = "Mean value of parasite richness") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+dev.off()
 
 # Simple glm
 MHC_protein_subset<-MHC_protein_cleaned[,c(MHC_name,Parasite_name),with=F]
@@ -143,6 +212,18 @@ z_res_updated[,allele_freq:=as.numeric(as.character(allele_freq))]
 
 summary(glm("beta~allele_freq+lake+lake*allele_freq", data=z_res_updated, family="gaussian"))
 
+png("./Figures/fig2a_ellipse.png",res=300, width=1000,height = 800)
+ggplot(z_res_updated, aes(x=allele_freq, y =beta, x2 = lake)) + 
+  geom_point(size=0.3, color="grey30") +
+  #stat_smooth(method="lm",formula= y~x, color = "black", size= 1, aes(group=1)) + 
+  stat_ellipse(aes(group=1)) + 
+  labs(x = "Allele frequency", y = "z value") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous( breaks = seq(0.1,0.9,by=0.1))
+dev.off()
+
+
 for(i in unique(z_res_updated[,lake])){
   plot_data<-z_res_updated[lake==i,]
   plot(plot_data$allele_freq, plot_data$beta, data=plot_data, main=i)
@@ -184,7 +265,7 @@ div_per_res<-as.data.frame(do.call(rbind, anova_res))
 colnames(div_per_res)<-c("D_a","D_as","p_a","p_as")
 div_per_res$p_a.adjust<-p.adjust(div_per_res$p_a,method = "fdr", n=nrow(div_per_res))
 div_per_res$p_as.adjust<-p.adjust(div_per_res$p_as,method = "fdr", n=nrow(div_per_res))
-div_per_res$col<-"black"
+div_per_res$col<-"grey75"
 div_per_res$log_D_a<-log10(div_per_res$D_a*100)
 div_per_res$log_D_as<-log10(div_per_res$D_as*100)
 div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"purple"
@@ -194,6 +275,28 @@ div_per_res[which(div_per_res$p_a.adjust>=0.05 & div_per_res$p_as.adjust<0.05),"
 plot(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"],ylim=c(-1,2),xlim=c(-1,2), col=div_per_res$col, ylab = "allele*site deviance %", xlab="allele deviance %")
 #abline(lm(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"]))
 abline(0,1)
+
+png("./Figures/fig2b.png", res = 300, width = 1000, height =800)
+ggplot(div_per_res, aes(x = D_a, y = D_as)) + 
+  geom_point(size = 0.3, color = div_per_res$col) + 
+  labs(x = "Percentage of Deviation\n explained by MHC", y = "Percentage of Deviation\n explained by MHC * site") +
+  geom_abline(intercept = 0, slope = 1, color="black", linetype="dashed", size=0.5) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous(limits = c(0,0.5)) + 
+  scale_y_continuous(limits = c(0,0.5))
+dev.off()
+
+png("./Figures/fig2b_log_0.01.png", res = 300, width = 1000, height =800)
+ggplot(div_per_res, aes(x = log_D_a, y = log_D_as)) + 
+  geom_point(size = 0.7, color = div_per_res$col) + 
+  labs(x = "Percentage of Deviation\n explained by MHC (log scale)", y = "Pergentage of Deviation\n explained by MHC * site (log scale)") +
+  geom_abline(intercept = 0, slope = 1, color="black", linetype="dashed", size=0.5) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous(limits = c(-2,2)) + 
+  scale_y_continuous(limits = c(-2,2))
+dev.off()
 
 # select the significant interaction effect of each parasite
 lapply(freq_combination_by_parasite[1:2,combinations], function(x){

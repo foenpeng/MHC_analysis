@@ -2,6 +2,7 @@ library(data.table)
 library(ggplot2)
 library(tidyr)
 library(cowplot)
+library(ggpmisc)
 setwd("/Users/pengfoen/OneDrive - University of Connecticut/MHC")
 MHC_meta <- fread("./7. Metadata and MHC data combined/7.0.BayesSummaryMergedMetadata.csv")
 
@@ -25,10 +26,19 @@ ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=Parasite.richness)) +
 
 MHC_meta_cleaned[,pop_mean_rich:=mean(Parasite.richness,na.rm=T),by="site_ID"]
 MHC_meta_cleaned[,residual_rich:=Parasite.richness-pop_mean_rich]
-summary(lm(residual_rich~x+sqx, data=MHC_meta_cleaned))
-ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=residual_rich)) + 
-  geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2))
+fig1a_model<-lm(residual_rich~x + I(x^2), data=MHC_meta_cleaned)
+summary(fig1a_model)
 
+# plot full data between number of MHC alleles and parasite load
+png("./Figures/fig1a.png",res = 300, width = 1000, height = 800)
+ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=residual_rich)) + 
+  geom_jitter(shape=16, size = 0.5, position=position_jitter(0.2)) +
+  stat_smooth(method = "lm", formula = y~x + I(x^2) , size = 1, aes(group=1), color='black') +
+  labs(title="",  y = "Parasite load") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous("Number of MHC alleles", breaks = unique(MHC_meta_cleaned$N_aas))
+dev.off()
 
 y_list<-c("Parasite.richness","parasiteSWdiversity","RelativeInfectionIntensity")
 res_combined<-list()
