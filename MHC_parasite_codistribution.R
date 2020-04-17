@@ -5,6 +5,8 @@ library(corrplot)
 library(ecodist)
 library(reshape2)
 library(seriation)
+library(lme4)
+library(lmerTest)
 
 setwd("/Users/pengfoen/OneDrive - University of Connecticut/MHC")
 MHC_protein <- fread("./7. Metadata and MHC data combined/7.0.BayesProteinsMergedMetadata.csv")
@@ -20,7 +22,7 @@ MHC_protein_cleaned<-na.omit(MHC_protein, cols=c("Parasite.richness"))
 anyNA(MHC_protein_cleaned[,..Parasite_name_all])
 # create site_ID from sample ID, becasue site name has many NAs (It turned out these NAs are the ones without metadata)
 MHC_protein_cleaned[,site_ID:=unlist(lapply(SAMPLE_ID, function(x) strsplit(x, "(?=[A-Za-z])(?<=[0-9])|(?=[0-9])(?<=[A-Za-z])", perl=TRUE)[[1]][1]))]
-MHC_protein_cleaned<-MHC_protein_cleaned[,if(.N>1) .SD, by="site_ID"][DEPTH_ALLELES>300]
+MHC_protein_cleaned<-MHC_protein_cleaned[,if(.N>1) .SD, by="site_ID"][DEPTH_ALLELES>450]
 Lake_name<-unlist(unique(MHC_protein_cleaned[,"site_name"]))
 
 { 
@@ -128,9 +130,9 @@ ggplot(dist_table, aes(x=MHC, y =Parasite)) +
   stat_ellipse() +  
   labs(x = "Value in MHC distance matrix", y = "Value in parasite distance matrix") +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
-  scale_x_continuous(limits = c(0,3)) + 
-  scale_y_continuous(limits = c(0,3))
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) 
+  #scale_x_continuous(limits = c(0,3)) + 
+  #scale_y_continuous(limits = c(0,3))
 dev.off()
 
 ############ Regression ############
@@ -209,14 +211,15 @@ setnames(MHC_prevalence_bylake_df,c("Var1","Var2","Freq"),c("MHC","lake","allele
 
 z_res_updated<-MHC_prevalence_bylake_df[z_res_updated,on=c("MHC","lake")]
 z_res_updated[,allele_freq:=as.numeric(as.character(allele_freq))]
-
+z_res_updated[,abs_z:=abs(beta)]
+  
 summary(glm("beta~allele_freq+lake+lake*allele_freq", data=z_res_updated, family="gaussian"))
+summary(lmer(beta ~ allele_freq + (1|lake) + (allele_freq|lake), data=z_res_updated))
 
-png("./Figures/fig2a_ellipse.png",res=300, width=1000,height = 800)
+png("./Figures/fig2a.png",res=300, width=1000,height = 800)
 ggplot(z_res_updated, aes(x=allele_freq, y =beta, x2 = lake)) + 
   geom_point(size=0.3, color="grey30") +
-  #stat_smooth(method="lm",formula= y~x, color = "black", size= 1, aes(group=1)) + 
-  stat_ellipse(aes(group=1)) + 
+  stat_smooth(method="lm",formula= y~x, color = "black", size= 1, aes(group=1)) + 
   labs(x = "Allele frequency", y = "z value") +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         panel.background = element_blank(), axis.line = element_line(colour = "black")) +
@@ -272,19 +275,19 @@ div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust<0.05),"c
 div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust>=0.05),"col"]<-"red"
 div_per_res[which(div_per_res$p_a.adjust>=0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"blue"
 
-plot(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"],ylim=c(-1,2),xlim=c(-1,2), col=div_per_res$col, ylab = "allele*site deviance %", xlab="allele deviance %")
+plot(div_per_res[,"D_as"]~div_per_res[,"D_a"], col=div_per_res$col, ylab = "allele*site deviance %", xlab="allele deviance %")
 #abline(lm(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"]))
 abline(0,1)
 
 png("./Figures/fig2b.png", res = 300, width = 1000, height =800)
-ggplot(div_per_res, aes(x = D_a, y = D_as)) + 
+ggplot(div_per_res, aes(x = D_a*100, y = D_as*100)) + 
   geom_point(size = 0.3, color = div_per_res$col) + 
   labs(x = "Percentage of Deviation\n explained by MHC", y = "Percentage of Deviation\n explained by MHC * site") +
   geom_abline(intercept = 0, slope = 1, color="black", linetype="dashed", size=0.5) +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         panel.background = element_blank(), axis.line = element_line(colour = "black")) +
-  scale_x_continuous(limits = c(0,0.5)) + 
-  scale_y_continuous(limits = c(0,0.5))
+  scale_x_continuous(limits = c(0,15)) + 
+  scale_y_continuous(limits = c(0,15))
 dev.off()
 
 png("./Figures/fig2b_log_0.01.png", res = 300, width = 1000, height =800)

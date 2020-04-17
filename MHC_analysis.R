@@ -3,6 +3,11 @@ library(ggplot2)
 library(tidyr)
 library(cowplot)
 library(ggpmisc)
+library(lme4)
+library(lmerTest)
+library(MuMIn)
+
+
 setwd("/Users/pengfoen/OneDrive - University of Connecticut/MHC")
 MHC_meta <- fread("./7. Metadata and MHC data combined/7.0.BayesSummaryMergedMetadata.csv")
 
@@ -16,29 +21,77 @@ MHC_meta_cleaned[,sqx:=x^2]
 MHC_meta_cleaned[,site_ID:=unlist(lapply(SAMPLE_ID, function(x) strsplit(x, "(?=[A-Za-z])(?<=[0-9])|(?=[0-9])(?<=[A-Za-z])", perl=TRUE)[[1]][1]))]
 # remove the rows that does not contain information for regression
 MHC_meta_cleaned<-na.omit(MHC_meta_cleaned, cols=c("x", "Parasite.richness"))
+
+
+# plot fig S1
+png("./Figures/figS1.png",res=300, width=1000, height = 800)
+ggplot(MHC_meta_cleaned,aes(x=DEPTH_ALLELES, y=N_aas)) +
+  geom_point(shape=1, size=1) +
+  geom_rect(aes(xmin=-Inf, xmax=450, ymin=-Inf, ymax=Inf), fill="grey",alpha=0.01) +
+  labs(x="Sequencing depth", y="Number of MHC alleles retrieved") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(0,450,1000,2000,3000,4000,5000))
+dev.off()
+
 # remove lakes with too few data for regression
-MHC_meta_cleaned<-MHC_meta_cleaned[,if(.N>1) .SD, by="site_ID"][DEPTH_ALLELES>300]
+MHC_meta_cleaned<-MHC_meta_cleaned[,if(.N>1) .SD, by="site_ID"][DEPTH_ALLELES>450]
 
 # quadratic regression for all data
 summary(lm(Parasite.richness~x+sqx, data=MHC_meta_cleaned))
 ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=Parasite.richness)) + 
   geom_boxplot(outlier.shape=NA) + geom_jitter(shape=16, position=position_jitter(0.2)) 
 
-MHC_meta_cleaned[,pop_mean_rich:=mean(Parasite.richness,na.rm=T),by="site_ID"]
-MHC_meta_cleaned[,residual_rich:=Parasite.richness-pop_mean_rich]
-fig1a_model<-lm(residual_rich~x + I(x^2), data=MHC_meta_cleaned)
+
+# test if richness fit poisson distribution
+library(car)
+library(MASS)
+qqp(MHC_meta_cleaned$Parasite.richness, "norm")
+
+poisson <- fitdistr(MHC_meta_cleaned$Parasite.richness, "Poisson")
+qqp(MHC_meta_cleaned$Parasite.richness, "pois", lambda=poisson$estimate)
+
+nbinom <- fitdistr(MHC_meta_cleaned$Parasite.richness, "Negative Binomial")
+qqp(MHC_meta_cleaned$Parasite.richness, "nbinom", size = nbinom$estimate[[1]], mu = nbinom$estimate[[2]])
+
+# explore mixed effect models
+full_model<-glmer( Parasite.richness ~ log_std_length + x + sqx +  (1|site_name) + (x|site_name) + (sqx|site_name), family = "poisson", data = MHC_meta_cleaned)
+model1<-glmer( Parasite.richness ~ log_std_length + x + sqx +  (1|site_name) + (x|site_name) , family = "poisson", data = MHC_meta_cleaned)
+model2<-glmer( Parasite.richness ~ log_std_length + x  +  (1|site_name) + (x|site_name) + (sqx|site_name) , family = "poisson", data = MHC_meta_cleaned)
+model3<-glmer( Parasite.richness ~ log_std_length + sqx +  (1|site_name) +  (sqx|site_name), family = "poisson", data = MHC_meta_cleaned)
+model4<-glmer( Parasite.richness ~ log_std_length + sqx +  (1|site_name) , family = "poisson", data = MHC_meta_cleaned)
+model5<-glmer( Parasite.richness ~ log_std_length + x  +  (1|site_name) + (x|site_name) , family = "poisson", data = MHC_meta_cleaned)
+model6<-glmer( Parasite.richness ~ log_std_length + x +  (1|site_name) , family = "poisson", data = MHC_meta_cleaned)
+base_model<-glmer( Parasite.richness ~ log_std_length +  (1|site_name) , family = "poisson", data = MHC_meta_cleaned)
+
+no_int_model<-glm( Parasite.richness ~ log_std_length + x , family = "poisson", data = MHC_meta_cleaned)
+
+summary(model.avg(c(base_model,model4,model6)))
+
+
+fig1a_model<-lesser_mix_model
 summary(fig1a_model)
 
+#MHC_meta_cleaned[,pop_mean_rich:=mean(Parasite.richness,na.rm=T),by="site_ID"]
+#MHC_meta_cleaned[,residual_rich:=Parasite.richness-pop_mean_rich]
+residualrichness <- resid( glmer( Parasite.richness ~ log_std_length + (1|site_name) , "poisson", data= MHC_meta_cleaned,na.action=na.exclude))
+MHC_meta_cleaned[,residual_rich:=residualrichness]
+
 # plot full data between number of MHC alleles and parasite load
-png("./Figures/fig1a.png",res = 300, width = 1000, height = 800)
+png("./Figures/fig1a_qua.png",res = 300, width = 1000, height = 800)
 ggplot(MHC_meta_cleaned, aes(group=N_aas,x=N_aas, y=residual_rich)) + 
-  geom_jitter(shape=16, size = 0.5, position=position_jitter(0.2)) +
+  geom_jitter(shape=16, size = 0.2, position=position_jitter(0.2)) +
   stat_smooth(method = "lm", formula = y~x + I(x^2) , size = 1, aes(group=1), color='black') +
-  labs(title="",  y = "Parasite load") +
+  stat_smooth(method = "lm", formula = y~x + I(x^2) , size = 0.1, aes(group=site_name), color='grey2',fill=NA) +
+  labs(title="",  y = "Residual parasite richness") +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
           panel.background = element_blank(), axis.line = element_line(colour = "black")) +
   scale_x_continuous("Number of MHC alleles", breaks = unique(MHC_meta_cleaned$N_aas))
 dev.off()
+
+
+
+
 
 y_list<-c("Parasite.richness","parasiteSWdiversity","RelativeInfectionIntensity")
 res_combined<-list()
