@@ -7,6 +7,7 @@ library(reshape2)
 library(seriation)
 library(lme4)
 library(lmerTest)
+library(ape)
 
 setwd("/Users/pengfoen/OneDrive - University of Connecticut/MHC")
 MHC_protein <- fread("./7. Metadata and MHC data combined/7.0.BayesProteinsMergedMetadata.csv")
@@ -14,48 +15,81 @@ MHC_protein <- fread("./7. Metadata and MHC data combined/7.0.BayesProteinsMerge
 
 MHC_name_all<-colnames(MHC_protein)[7:1210]
 Parasite_name_all<-colnames(MHC_protein)[1271:1311]
-Lake_name_all<-unlist(unique(MHC_protein[,"site_name"]))
 
 ### clean parasite data
 # remove rows with no parasite info and lakes with too few samples
 MHC_protein_cleaned<-na.omit(MHC_protein, cols=c("Parasite.richness"))
 anyNA(MHC_protein_cleaned[,..Parasite_name_all])
+
 # create site_ID from sample ID, becasue site name has many NAs (It turned out these NAs are the ones without metadata)
 MHC_protein_cleaned[,site_ID:=unlist(lapply(SAMPLE_ID, function(x) strsplit(x, "(?=[A-Za-z])(?<=[0-9])|(?=[0-9])(?<=[A-Za-z])", perl=TRUE)[[1]][1]))]
+MHC_protein_cleaned[,N_aas:=rowSums(.SD>0),.SDcols=MHC_name_all]
+
+### explore the cut off threshold for low depth samples
+# plot fig S1
+# png("./Figures/figS1a.png",res=300, width=1000, height = 800)
+# ggplot(MHC_protein_cleaned,aes(x=DEPTH_ALLELES)) +
+#   geom_histogram(bins=80) +
+#   labs(y="Sample Counts",x="Sequencing depth") +
+#   geom_rect(aes(xmin=-Inf, xmax=450, ymin=-Inf, ymax=Inf), fill="grey",alpha=0.01) +
+#   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+#         panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+#   scale_x_continuous(breaks = c(0,450,1000,2000,3000,4000,5000))
+# dev.off()
+
+# png("./Figures/figS1b.png",res=300, width=1000, height = 800)
+# ggplot(MHC_protein_cleaned,aes(x=DEPTH_ALLELES, y=N_aas)) +
+#   geom_point(shape=1, size=1) +
+#   geom_rect(aes(xmin=-Inf, xmax=450, ymin=-Inf, ymax=Inf), fill="grey",alpha=0.01) +
+#   labs(x="Sequencing depth", y="Number of MHC alleles retrieved") +
+#   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+#         panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+#   scale_x_continuous(breaks = c(0,450,1000,2000,3000,4000,5000))
+# dev.off()
+
+# remove samples with low depth and lakes with too few data for regression
 MHC_protein_cleaned<-MHC_protein_cleaned[,if(.N>1) .SD, by="site_ID"][DEPTH_ALLELES>450]
 Lake_name<-unlist(unique(MHC_protein_cleaned[,"site_name"]))
 
-{ 
-  # old clean
-# count how many times each parasite appear in the table, there are many unfrequent ones
-Parasite_count_bylake<-MHC_protein[,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=Parasite_name_all, by="site_name"][,rowSums(.SD, na.rm = TRUE),.SDcols=Parasite_name_all, by="site_name"]
-Parasite_appearance_bylake<-MHC_protein[,c(.N,lapply(.SD, function(x) sum(x>0,na.rm=T))),.SDcols=Parasite_name_all, by="site_name"][,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=Parasite_name_all]
-Parasite_appearance_bylake<-data.table(parasite = names(Parasite_appearance_bylake), transpose(Parasite_appearance_bylake))
-#Parasite_name<-Parasite_appearance_bylake[V1>10,parasite] # keep parasite that appears in at least 11 lakes
-Parasite_name<-Parasite_name_all
+# remove 89 MHC alleles that only present in the individuals removed from the previous step
+MHC_remove<-MHC_name_all[t(MHC_protein_cleaned[,lapply(.SD, function(x) sum(x>0,na.rm=T)), .SDcols=MHC_name_all])==0]
+MHC_protein_cleaned[,(MHC_remove):=NULL]
+MHC_name<-colnames(MHC_protein_cleaned)[8:1122]
 
-Parasite_count<-MHC_protein[,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=Parasite_name]
-Parasite_count<-data.table(cn = names(Parasite_count), transpose(Parasite_count))
+# convert MHC copy data into presence/absence
+MHC_protein_cleaned[,(MHC_name):=lapply(.SD, function(x) as.numeric(x>0,na.rm=T)),.SDcols=MHC_name]
 
-
-
-### clean MHC data
-MHC_appearance_bylake<-MHC_protein_cleaned[,c(.N,lapply(.SD, function(x) sum(x>0,na.rm=T))),.SDcols=MHC_name_all, by="site_name"][,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=MHC_name_all]
-MHC_appearance_bylake<-data.table(MHC = names(MHC_appearance_bylake), transpose(MHC_appearance_bylake))
-#MHC_name<-MHC_appearance_bylake[V1>1,MHC] # require MHC appears in at least two lakes
-MHC_name<-MHC_name_all
-
-# remove MHC with 0 appearance
-MHC_count<-MHC_protein_cleaned[,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=MHC_name]
-MHC_count<-data.table(cn = names(MHC_count), transpose(MHC_count))
-
-# look for highly correlated MHC and delete one of them
-temp_MHC<-MHC_protein_cleaned[,..MHC_name]
-temp_cor<-cor(temp_MHC)
-temp_cor[!lower.tri(temp_cor)] <- 0
-length(colnames(temp_MHC)[apply(temp_cor,2,function(x) any(abs(x) > 0.99))])
-MHC_name<-colnames(temp_MHC)[!apply(temp_cor,2,function(x) any(abs(x) > 0.99))]
-}
+# { 
+#   # old clean
+# # count how many times each parasite appear in the table, there are many unfrequent ones
+# Parasite_count_bylake<-MHC_protein[,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=Parasite_name_all, by="site_name"][,rowSums(.SD, na.rm = TRUE),.SDcols=Parasite_name_all, by="site_name"]
+# Parasite_appearance_bylake<-MHC_protein[,c(.N,lapply(.SD, function(x) sum(x>0,na.rm=T))),.SDcols=Parasite_name_all, by="site_name"][,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=Parasite_name_all]
+# Parasite_appearance_bylake<-data.table(parasite = names(Parasite_appearance_bylake), transpose(Parasite_appearance_bylake))
+# #Parasite_name<-Parasite_appearance_bylake[V1>10,parasite] # keep parasite that appears in at least 11 lakes
+# Parasite_name<-Parasite_name_all
+# 
+# Parasite_count<-MHC_protein[,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=Parasite_name]
+# Parasite_count<-data.table(cn = names(Parasite_count), transpose(Parasite_count))
+# 
+# 
+# 
+# ### clean MHC data
+# MHC_appearance_bylake<-MHC_protein_cleaned[,c(.N,lapply(.SD, function(x) sum(x>0,na.rm=T))),.SDcols=MHC_name_all, by="site_name"][,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=MHC_name]
+# MHC_appearance_bylake<-data.table(MHC = names(MHC_appearance_bylake), transpose(MHC_appearance_bylake))
+# #MHC_name<-MHC_appearance_bylake[V1>1,MHC] # require MHC appears in at least two lakes
+# MHC_name<-MHC_name_all
+# 
+# # remove MHC with 0 appearance
+# MHC_count<-MHC_protein_cleaned[,lapply(.SD, function(x) sum(x>0,na.rm=T)),.SDcols=MHC_name]
+# MHC_count<-data.table(cn = names(MHC_count), transpose(MHC_count))
+# 
+# # look for highly correlated MHC and delete one of them
+# temp_MHC<-MHC_protein_cleaned[,..MHC_name]
+# temp_cor<-cor(temp_MHC)
+# temp_cor[!lower.tri(temp_cor)] <- 0
+# length(colnames(temp_MHC)[apply(temp_cor,2,function(x) any(abs(x) > 0.99))])
+# MHC_name<-colnames(temp_MHC)[!apply(temp_cor,2,function(x) any(abs(x) > 0.99))]
+#}
 
 {
   # new clean 8/8/2019
@@ -65,17 +99,44 @@ MHC_name<-colnames(temp_MHC)[!apply(temp_cor,2,function(x) any(abs(x) > 0.99))]
   Parasite_prevalence_bylake<-data.table(Parasite_name = names(Parasite_prevalence_bylake), transpose(Parasite_prevalence_bylake))
   colnames(Parasite_prevalence_bylake)<-as.character(unlist(Parasite_prevalence_bylake[1,]))
   Parasite_prevalence_bylake<-Parasite_prevalence_bylake[-1,]
-  Parasite_prevalence_bylake[,lapply(.SD, function(x) sum(x>0.1 & x <0.9)),.SDcols=2:27]
+  Parasite_prevalence_bylake[,lapply(.SD, function(x) sum(x>0.05 & x <0.95)),.SDcols=2:27]
   setnames(Parasite_prevalence_bylake,"site_name","Parasite_name")
   
   # choose MHC in each lake that has frequency ranging from 0.05-0.95
-  MHC_prevalence_bylake<-MHC_protein_cleaned[,lapply(.SD, function(x) sum(x>0,na.rm=T)/(.N)), by='site_name',.SDcols=MHC_name_all]
+  MHC_prevalence_bylake<-MHC_protein_cleaned[,lapply(.SD, function(x) sum(x>0,na.rm=T)/(.N)), by='site_name',.SDcols=MHC_name]
   MHC_prevalence_bylake<-data.table(MHC_name = names(MHC_prevalence_bylake), transpose(MHC_prevalence_bylake))
   colnames(MHC_prevalence_bylake)<-as.character(unlist(MHC_prevalence_bylake[1,]))
   MHC_prevalence_bylake<-MHC_prevalence_bylake[-1,]
-  MHC_prevalence_bylake[,lapply(.SD, function(x) sum(x>0.1 & x <0.9)),.SDcols=2:27]
+  MHC_prevalence_bylake[,lapply(.SD, function(x) sum(x>0.05 & x <0.95)),.SDcols=2:27]
   setnames(MHC_prevalence_bylake,"site_name","MHC_name")
 }
+
+##### Basic statistics of MHC diversity
+summary(MHC_protein_cleaned$DEPTH_ALLELES)
+summary(MHC_protein_cleaned$N_aas)
+
+N_samples<-t(MHC_protein_cleaned[,.N,by=site_ID][,N])
+mean(N_samples)
+sd(N_samples)
+
+# calculate how many MHC alleles are present in only one site
+MHC_prevalance_byallele<-t(MHC_protein_cleaned[,lapply(.SD, function(x) sum(x>0,na.rm=T)), by=site_ID, .SDcols=MHC_name][,lapply(.SD, function(x) sum(x>0,na.rm=T)), .SDcols=MHC_name])
+sum(MHC_prevalance_byallele==1)/1115
+
+changeCols <- c("site_ID","watershed")
+MHC_protein_cleaned[,(changeCols):= lapply(.SD, as.factor), .SDcols = changeCols]
+# test if data are normally distributed
+shapiro.test(MHC_protein_cleaned$N_aas)
+# aov does not work because shapiro test is significant
+kruskal.test(N_aas ~ watershed,data=MHC_protein_cleaned)
+kruskal.test(N_aas ~ site_ID,data=MHC_protein_cleaned)
+
+# for parasite summary statistics
+summary(MHC_protein_cleaned$Parasite.richness)
+sd(MHC_protein_cleaned$Parasite.richness)
+shapiro.test(MHC_protein_cleaned$Parasite.richness)
+kruskal.test(Parasite.richness ~ watershed,data=MHC_protein_cleaned)
+kruskal.test(Parasite.richness ~ site_ID,data=MHC_protein_cleaned)
 
 ############ Mantel test of matrix distance between parasite and MHC ################
 P_dist<-dist(t(as.matrix(Parasite_prevalence_bylake[,-1],label=TRUE)))
@@ -138,18 +199,44 @@ dev.off()
 ############ Regression ############
 
 # regression between lake averages of MHC and parasite
-MHC_protein_cleaned[,N_aas:=rowSums(.SD>0),.SDcols=MHC_name_all]
-MHC_parasite_avg<-MHC_protein_cleaned[,.("avg_MHC"=mean(N_aas),"avg_parasite"=mean(Parasite.richness)),by="site_ID"]
-summary(lm(avg_parasite~avg_MHC,data=MHC_parasite_avg))
+MHC_parasite_avg<-MHC_protein_cleaned[,.("avg_MHC"=mean(N_aas),"avg_parasite"=mean(Parasite.richness),"site_name"=site_name[1],"lake_area"=surface_area_ha[1],"benthicdiet"=mean(benthicdiet.score,na.rm=T)),by="site_ID"]
+summary(lm(avg_MHC~avg_parasite,data=MHC_parasite_avg))
 
 png("./Figures/fig1b.png",res=300, width=1000,height = 800)
-ggplot(MHC_parasite_avg, aes(x=avg_MHC, y =avg_parasite)) + 
+ggplot(MHC_parasite_avg, aes(x=avg_parasite, y =avg_MHC)) + 
   geom_point(size=0.5) +
   stat_smooth(method="lm",formula= y~x, color = "black", size= 1) + 
-  labs(x = "Mean number of MHC allelels", y = "Mean value of parasite richness") +
+  labs(x = "Mean value of parasite richness", y = "Mean number of MHC allelels") +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         panel.background = element_blank(), axis.line = element_line(colour = "black"))
 dev.off()
+
+
+
+
+# regression between MHC diversity and genomic heterozygosity
+het<-fread("Heterozygosity_by_site_LS45.csv")
+het[Pop=="Higgins Lake", Pop:="Higgens Lake"]
+het[Pop=="Pye Stream", Pop:="Pye Creek"]
+het[Pop=="Pye Estuary", Pop:="Pye Outlet"]
+MHC_het<-het[MHC_parasite_avg,on="Pop==site_name"]
+summary(lm(MHC_het$avg_MHC~MHC_het$MeanHet))
+summary(lm(avg_MHC~MeanHet + avg_parasite + lake_area + benthicdiet, data=MHC_het))
+
+png("./Figures/fig_MHC_het.png",res=300, width=1000,height = 800)
+ggplot(MHC_het, aes(x=MeanHet, y =avg_MHC)) + 
+  geom_point(size=0.5) +
+  stat_smooth(method="lm",formula= y~x, color = "black", size= 1) + 
+  labs(x = "Mean heterozygosity", y = "Mean number of MHC allelels") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+dev.off()
+
+
+# phylogeny
+site_Fst<-fread("PairwiseFst_LS45All.csv")
+NJ_tree<-njs(as.matrix(as.numeric(site_Fst)))
+
 
 # Simple glm
 MHC_protein_subset<-MHC_protein_cleaned[,c(MHC_name,Parasite_name),with=F]
@@ -179,8 +266,8 @@ fit_res<-list()
 Parasite_MHC_lake<-list()
 
 for(lake in Lake_name){
-  MHC_name_lake[[lake]]<-unlist(MHC_prevalence_bylake[get(lake)>0.1 & get(lake)<0.9,MHC_name])
-  Parasite_name_lake[[lake]]<-unlist(Parasite_prevalence_bylake[get(lake)>0.1 & get(lake)<0.9,Parasite_name])
+  MHC_name_lake[[lake]]<-unlist(MHC_prevalence_bylake[get(lake)>0.05 & get(lake)<0.95,MHC_name])
+  Parasite_name_lake[[lake]]<-unlist(Parasite_prevalence_bylake[get(lake)>0.05 & get(lake)<0.95,Parasite_name])
   MHC_temp<-MHC_protein_cleaned[site_name==lake,c(MHC_name_lake[[lake]],Parasite_name_lake[[lake]],"log_std_length"),with=F]
   lake_fits[[lake]]<-lapply(Parasite_name_lake[[lake]],function(y) glm(paste0(y,"~ log_std_length +",paste(MHC_name_lake[[lake]], collapse="+")),family="poisson",data=MHC_protein_cleaned[site_name==lake,]))
   fit_res[[lake]]<-sapply(lake_fits[[lake]], function(x) c(p=summary(x)$coef[,4],coef=summary(x)$coef[,1], z=summary(x)$coef[,3]))
