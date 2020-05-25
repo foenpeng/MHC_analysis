@@ -2,7 +2,6 @@ library(data.table)
 library(glmnet)
 library(Hmisc)
 library(corrplot)
-library(ecodist)
 library(reshape2)
 library(seriation)
 library(lme4)
@@ -139,8 +138,10 @@ kruskal.test(Parasite.richness ~ watershed,data=MHC_protein_cleaned)
 kruskal.test(Parasite.richness ~ site_ID,data=MHC_protein_cleaned)
 
 ############ Mantel test of matrix distance between parasite and MHC ################
+
 P_dist<-dist(t(as.matrix(Parasite_prevalence_bylake[,-1],label=TRUE)))
 M_dist<-dist(t(as.matrix(MHC_prevalence_bylake[,-1],label=TRUE)))
+library(ecodist)
 mantel(P_dist~M_dist)
 dist_table<-data.table(Parasite=as.vector(P_dist), MHC=as.vector(M_dist))
 
@@ -192,9 +193,57 @@ ggplot(dist_table, aes(x=MHC, y =Parasite)) +
   labs(x = "Value in MHC distance matrix", y = "Value in parasite distance matrix") +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         panel.background = element_blank(), axis.line = element_line(colour = "black")) 
-  #scale_x_continuous(limits = c(0,3)) + 
-  #scale_y_continuous(limits = c(0,3))
+#scale_x_continuous(limits = c(0,3)) + 
+#scale_y_continuous(limits = c(0,3))
 dev.off()
+
+###### use Principal coordinates of neighbour matrices (PCNM) to analyze multiple matrices
+
+### prepare genomic distance matrix
+Genomic_dist<-as.matrix(fread("PairwiseFst_LS45All.csv"))
+rownames(Genomic_dist)<-Genomic_dist[,1]
+genomic_dist<-Genomic_dist[,-1]
+class(genomic_dist)<-"numeric"
+# correct some names in the original file
+setdiff(Lake_name,rownames(genomic_dist))
+names_to_correct<-rownames(genomic_dist)
+names_to_correct<-replace(names_to_correct,names_to_correct=="Higgins Lake", "Higgens Lake")
+names_to_correct<-replace(names_to_correct,names_to_correct=="Pye Stream", "Pye Creek")
+names_to_correct<-replace(names_to_correct,names_to_correct=="Pye Estuary", "Pye Outlet")
+intersect(Lake_name,names_to_correct)
+colnames(genomic_dist)<-names_to_correct
+rownames(genomic_dist)<-names_to_correct
+flip_value_to_triangular<-function(M){
+    M2<-M
+    for(i in 1:dim(M)[1]){
+      for(j in 1:dim(M)[2]){
+        if(i<j & is.na(M[j,i]) ){
+          M[j,i]<-M2[i,j]
+          M[i,j]<-NA
+        }
+      }
+    }
+  return(M)
+}
+genomic_dist_corrected<-as.dist(flip_value_to_triangular(genomic_dist[Lake_name,Lake_name]))
+
+### prepare swimming distance matrix
+Swim_dist<-as.matrix(fread("FishSwimDist.csv"))
+rownames(Swim_dist)<-Swim_dist[,1]
+swim_dist<-Swim_dist[,-1]
+class(swim_dist)<-"numeric"
+swim_dist_corrected<-as.dist(flip_value_to_triangular(swim_dist[Lake_name,Lake_name]))
+
+# getting pcnm vectors from genomic, swimming and parasite distance matrices
+library(vegan)
+pcnm_parasite<-pcnm(P_dist)$vectors
+pcnm_genome<-pcnm(genomic_dist_corrected)$vectors
+pcnm_swim<-pcnm(swim_dist_corrected)$vectors
+pcnm_mhc<-pcnm(M_dist)
+
+
+
+
 
 ############ Regression ############
 
@@ -358,7 +407,7 @@ freq_combination_df["No.lakes"]<-freq_combination
 freq_combination_df<-setDT(freq_combination_df,keep.rownames = T)
 freq_combination_by_parasite<-freq_combination_df[,c("combinations"=list(list(rn))),by=V1]
 setnames(freq_combination_by_parasite,"V1","parasite")
-  
+
 comb_fits<-list()
 comb_fits_res<-list()
 anova_res<-list()
