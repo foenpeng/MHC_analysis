@@ -566,3 +566,50 @@ swim_dist_corrected<-as.dist(flip_value_to_triangular(swim_dist[Lake_name,Lake_n
 # pcnm_genome<-pcnm(genomic_dist_corrected)$vectors
 # pcnm_swim<-pcnm(swim_dist_corrected)$vectors
 # pcnm_mhc<-pcnm(M_dist)
+
+
+####### plot map and phylogeny ###############
+###plot phylogeny
+tree<-nj(genomic_dist_corrected)
+nj_tree<-root(tree,"Sayward Estuary")
+colors2 <- rep("black", Nedge(nj_tree))
+colors2[which(nj_tree$edge[,2] %in% 1:26)] <- topo.colors(26)
+is_tip <- nj_tree$edge[,2] <= length(nj_tree$tip.label)
+ordered_tips <- nj_tree$edge[is_tip, 2]
+
+png("./Figures/fig_phylogeny.png",res=300, width=1500,height = 2400)
+plot(nj_tree, edge.color=colors2,edge.width=1.5, font=0.8, label.offset = 0.02)
+tiplabels(pch = 21, bg=topo.colors(26)[match(c(1:26),ordered_tips)], cex = 1,adj=0.5)
+dev.off()
+
+#####plot the map
+site_pos<-unique(MHC_protein_cleaned[,.(site_name,utm_N,utm_E)])
+library(proj4)
+proj4string <- "+proj=utm +zone=10 +north +ellps=WGS84 +datum=WGS84 +units=m +no_defs "
+pj <- project(site_pos[,.(utm_E,utm_N)], proj4string, inverse=TRUE)
+site_pos[,c("long","lat"):=pj]
+s <- strsplit(site_pos[,site_name], " ")
+site_pos[,site_name_I:=sapply(s, function(x){toupper(paste(substring(x, 1, 1), collapse = ""))})]
+
+png("./Figures/fig_mab_text.png",res=300, width=600,height = 1200)
+layout(matrix(c(1,1,1,
+                2,2,2,
+                3,3,3),nrow=3,byrow=T),heights=c(6,0.5,5))
+long <- c(-126,-125)
+lat <- c(48.5,50.7)
+center <- c(mean(lat), mean(long))
+zoom <- 7
+library(RgoogleMaps)
+terrmap <- GetMap(center=center, zoom=zoom, maptype= "terrain", destfile = "terrain.png")
+PlotOnStaticMap(terrmap, lat = c(49.9,49.9,50.5,50.5,49.9), lon = c(-126.2,-125,-125,-126.2,-126.2), lwd=1, FUN = lines)
+plot.new()
+long <- c(-126.2,-125)
+lat <- c(49.9,50.5)
+center <- c(mean(lat), mean(long))
+zoom <- 10
+terrmap2 <- GetMap(center=center, zoom=zoom, maptype= "terrain", destfile = "terrain2.png")
+PlotOnStaticMap(terrmap2, lat = site_pos$lat, lon = site_pos$long, pch = 21, cex = 1, col="black",bg=topo.colors(26)[match(c(1:26),ordered_tips)])
+PlotOnStaticMap(terrmap2, lat = site_pos$lat-0.015, lon = site_pos$long, FUN= text,labels = site_pos$site_name_I,cex=0.5, add=TRUE) 
+box(lwd = 1.5,col="black")
+par(mfrow=c(1,1))
+dev.off()
