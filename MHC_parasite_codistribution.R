@@ -129,6 +129,7 @@ shapiro.test(MHC_protein_cleaned$N_aas)
 # aov does not work because shapiro test is significant
 kruskal.test(N_aas ~ watershed,data=MHC_protein_cleaned)
 kruskal.test(N_aas ~ site_ID,data=MHC_protein_cleaned)
+summary(aov(N_aas ~ watershed + site_ID %in% watershed,data=MHC_protein_cleaned))
 
 # for parasite summary statistics
 summary(MHC_protein_cleaned$Parasite.richness)
@@ -137,6 +138,331 @@ shapiro.test(MHC_protein_cleaned$Parasite.richness)
 kruskal.test(Parasite.richness ~ watershed,data=MHC_protein_cleaned)
 kruskal.test(Parasite.richness ~ site_ID,data=MHC_protein_cleaned)
 
+
+############ Regression Analysis of the number of MHC alleles ################
+# quadratic regression for all data
+full_model<-glmer( Parasite.richness ~ log_std_length + N_aas+I(N_aas^2) +  (1|site_name) + (N_aas|site_name) + (I(N_aas^2)|site_name), family = "poisson", data = MHC_protein_cleaned)
+model1<-glmer( Parasite.richness ~ log_std_length + N_aas+I(N_aas^2) +  (1|site_name) + (N_aas|site_name), family = "poisson", data = MHC_protein_cleaned)
+model2<-glmer( Parasite.richness ~ log_std_length + N_aas +  (1|site_name) + (N_aas|site_name) + (I(N_aas^2)|site_name) , family = "poisson", data = MHC_protein_cleaned)
+model3<-glmer( Parasite.richness ~ log_std_length + I(N_aas^2) +  (1|site_name) + (I(N_aas^2)|site_name), family = "poisson", data = MHC_protein_cleaned)
+model4<-glmer( Parasite.richness ~ log_std_length + I(N_aas^2) +  (1|site_name) , family = "poisson", data = MHC_protein_cleaned)
+model5<-glmer( Parasite.richness ~ log_std_length + N_aas +  (1|site_name) + (N_aas|site_name) , family = "poisson", data = MHC_protein_cleaned)
+model6<-glmer( Parasite.richness ~ log_std_length + N_aas + (1|site_name) , family = "poisson", data = MHC_protein_cleaned)
+base_model<-glmer( Parasite.richness ~ log_std_length + (1|site_name) , family = "poisson", data = MHC_protein_cleaned)
+
+no_int_model<-glm( Parasite.richness ~ log_std_length + x , family = "poisson", data = MHC_protein_cleaned)
+
+residualrichness <- resid( glmer( Parasite.richness ~ log_std_length + (1|site_name) , "poisson", data= MHC_protein_cleaned,na.action=na.exclude))
+MHC_protein_cleaned[,residual_rich:=residualrichness]
+
+# plot full data between number of MHC alleles and parasite load
+png("./Figures/fig1a_qua.png",res = 300, width = 1000, height = 800)
+ggplot(MHC_protein_cleaned, aes(group=N_aas,x=N_aas, y=residual_rich)) + 
+  geom_jitter(shape=16, size = 0.2, position=position_jitter(0.2)) +
+  stat_smooth(method = "lm", formula = y~x + I(x^2) , size = 1, aes(group=1), color='black') +
+  stat_smooth(method = "lm", formula = y~x + I(x^2) , size = 0.1, aes(group=site_name), color='grey20',fill=NA) +
+  labs(title="",  y = "Residual parasite richness") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous("Number of MHC alleles per individual", breaks = unique(MHC_meta_cleaned$N_aas))
+dev.off()
+
+
+#### regression between lake averages of MHC and parasite
+MHC_parasite_avg<-MHC_protein_cleaned[,.("avg_MHC"=mean(N_aas),"avg_parasite"=mean(Parasite.richness),"site_name"=site_name[1],"lake_area"=surface_area_ha[1],"benthicdiet"=mean(benthicdiet.score,na.rm=T)),by="site_ID"]
+popMHC_popParasite<-summary(lm(avg_MHC~avg_parasite  ,data=MHC_parasite_avg))
+
+png("./Figures/fig1b.png",res=300, width=1000,height = 800)
+ggplot(MHC_parasite_avg, aes(x=avg_parasite, y =avg_MHC)) + 
+  geom_point(size=0.5) +
+  stat_smooth(method="lm",formula= y~x, color = "black", size= 1) + 
+  labs(x = "Average parasite richness per population", y = "Average number of MHC allelels \n per population") +
+  annotate(geom="text", x=4, y=9.5, label=paste("p =",round(popMHC_popParasite$coef[2,4],2))) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"),
+        axis.title = element_text(size=10))
+  
+dev.off()
+
+
+
+
+# regression between MHC diversity and genomic heterozygosity
+het<-fread("Heterozygosity_by_site_LS45.csv")
+het[Pop=="Higgins Lake", Pop:="Higgens Lake"]
+het[Pop=="Pye Stream", Pop:="Pye Creek"]
+het[Pop=="Pye Estuary", Pop:="Pye Outlet"]
+MHC_het<-het[MHC_parasite_avg,on="Pop==site_name"]
+popMHC_popHet<-summary(lm(MHC_het$avg_MHC~MHC_het$MeanHet))
+summary(lm(avg_MHC~MeanHet + avg_parasite + lake_area + benthicdiet, data=MHC_het))
+
+png("./Figures/fig_MHC_het.png",res=300, width=1000,height = 800)
+ggplot(MHC_het, aes(x=MeanHet, y =avg_MHC)) + 
+  geom_point(size=0.5) +
+  stat_smooth(method="lm",formula= y~x, color = "black", size= 1) + 
+  labs(x = "Population mean heterozygosity", y = "Average number of MHC allelels \n per population") +
+  annotate(geom="text", x=0.08, y=9.5, label=paste("p =",round(popMHC_popHet$coef[2,4],2))) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"),
+        axis.title = element_text(size=10))
+dev.off()
+
+
+# phylogeny
+site_Fst<-fread("PairwiseFst_LS45All.csv")
+NJ_tree<-njs(as.matrix(as.numeric(site_Fst)))
+
+
+# Simple glm
+MHC_protein_subset<-MHC_protein_cleaned[,c(MHC_name,Parasite_name),with=F]
+# fit glm for all lakes
+fits <- lapply(Parasite_name,
+               function(y)glm(paste(y , paste("~", (paste(MHC_name, collapse = " + ")))),data=MHC_protein_subset,family = gaussian()))
+
+
+# GLM with regularization and sparse matrix
+
+Parasite_name_bi = paste("bi", Parasite_name, sep = ".")
+MHC_protein_cleaned[,c(Parasite_name_bi) := lapply(.SD, function(x) as.numeric(x>0,na.rm=T)),.SDcols=Parasite_name]
+
+y_train <- as.matrix(MHC_protein_cleaned[,bi.Unionidae_internal])
+x_train <- sparse.model.matrix(~ . -1, data=MHC_protein_cleaned[,..MHC_name])
+
+# For example for logistic regression using L1 norm (lasso) 
+cv.fit <- cv.glmnet(x=x_train, y=y_train, family='binomial', alpha=1, nfolds=5, parallel=TRUE)
+
+plot(cv.fit)
+
+
+############################################################
+# lm with single MHC as dependent variable
+MHC_name_lake<-list()
+Parasite_name_lake<-list()
+lake_fits<-list()
+P_res<-list()
+Z_res<-list()
+Parasite_MHC_lake<-list()
+library(MASS)
+for(lake in Lake_name){
+  MHC_name_lake[[lake]]<-unlist(MHC_prevalence_bylake[get(lake)>0.05 & get(lake)<0.95,MHC_name])
+  Parasite_name_lake[[lake]]<-unlist(Parasite_prevalence_bylake[get(lake)>0.05 & get(lake)<0.95,Parasite_name])
+  MHC_temp<-MHC_protein_cleaned[site_name==lake,c(MHC_name_lake[[lake]],Parasite_name_lake[[lake]],"log_std_length"),with=F]
+  #MHC_temp[,(Parasite_name_lake[[lake]]):=lapply(.SD, function(x) as.numeric(x>0,na.rm=T)),.SDcols=Parasite_name_lake[[lake]]]
+  
+  temp_mat<-matrix(nrow = length(Parasite_name_lake[[lake]]),
+                   ncol = length(MHC_name_lake[[lake]]),
+                   dimnames = list(Parasite_name_lake[[lake]],MHC_name_lake[[lake]]))
+  z_temp<-temp_mat
+  p_temp<-temp_mat
+  for(par in Parasite_name_lake[[lake]]){
+    temp_fit<-list()
+    temp_fit2<-list()
+    tryCatch({
+      temp_fit <-lapply(MHC_name_lake[[lake]],function(x) glm.nb(paste0(par,"~ log_std_length +",x),link=log,data=MHC_temp))
+      #temp_fit <-lapply(MHC_name_lake[[lake]],function(x) glm(paste0(par,"~ log_std_length +",x),family="binomial",data=MHC_temp))
+      z_temp[par,]<-unlist(lapply(temp_fit, function(x) z=summary(x)$coef[3,3]))
+      p_temp[par,]<-unlist(lapply(temp_fit, function(x) p=summary(x)$coef[3,4]))
+      # test if the two regression are similar enough, if not, make it NA
+      temp_fit2<-lapply(MHC_name_lake[[lake]],function(x) glm.nb(paste0(par,"~ log_std_length +",x),link=log,data=MHC_temp[!which.max(get(par))])) # only remove ONE data point
+      z_temp2<-unlist(lapply(temp_fit2, function(x) tryCatch(summary(x)$coef[3,3],error=function(e) return(NA))))
+      z_temp[par,]<-ifelse(abs(z_temp2-z_temp[par,])<0.5,z_temp[par,],NA)
+      p_temp[par,]<-ifelse(is.na(z_temp[par,]),NA,p_temp[par,])
+    }, error=function(e){cat("ERROR :",conditionMessage(e),lake,par, "\n")})
+  }
+  P_res[[lake]]<-p_temp
+  Z_res[[lake]]<-z_temp
+  Parasite_MHC_lake[[lake]]<-expand.grid(Parasite_name_lake[[lake]],MHC_name_lake[[lake]])
+ 
+  #cor_temp<-rcorr(as.matrix(MHC_temp))
+  #res_cor[[lake]]<-cor_temp
+  #corrplot(cor_temp$r[MHC_name_lake[[lake]],Parasite_name_lake[[lake]]], type="full", order="original", 
+           #p.mat = cor_temp$P[MHC_name_lake[[lake]],Parasite_name_lake[[lake]]], sig.level = 0.05, insig = "blank",
+           #cl.lim=c(-1,1), col=colorRampPalette(c("blue","white","red"))(200))
+}
+
+p_res_updated<-do.call(rbind,lapply(P_res,as.data.frame.table))
+p_res_updated[,"lake"]<-sub("\\..*","", rownames(p_res_updated))
+p_res_updated<-setDT(p_res_updated)
+setnames(p_res_updated,c("Var1","Var2","Freq"),c("parasite","MHC","p"))
+
+z_res_updated<-do.call(rbind,lapply(Z_res,as.data.frame.table))
+z_res_updated[,"lake"]<-sub("\\..*","", rownames(z_res_updated))
+z_res_updated<-setDT(z_res_updated)
+setnames(z_res_updated,c("Var1","Var2","Freq"),c("parasite","MHC","z"))
+
+z_p_combined<-z_res_updated[p_res_updated,on=c("lake","parasite","MHC")]
+z_p_combined[,p_adjust:=p.adjust(p,method = "bonferroni")]
+
+# test some models
+pois<-summary(glm(formula=Diplostomum_spp2~log_std_length+prot_825,family="poisson",data=MHC_protein_cleaned[site_name=="Lawson Lake"]))
+nb<-summary(glm.nb(formula=Diplostomum_spp2~log_std_length+prot_825,link=log,data=MHC_protein_cleaned[site_name=="Lawson Lake"]))
+
+png("./Figures/fig_eg_heatmap.png",res=300, width=1000,height = 800)
+ggplot(aes(as.factor(x=prot_577),y=Unionidae_internal),data=MHC_protein_cleaned[site_name=="Lawson Lake"]) +
+  geom_jitter(width=0.1, height=0.05, size=0.5) +
+  geom_smooth(method="lm",formula= y~x, color = "black", size= 1,aes(group=1)) + 
+  labs(title = "Lawson Lake", x = "prot_577") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_discrete( breaks = c("0","1"),labels=c("absent","present"))
+dev.off()
+################## plot a heat map for a particular lake
+
+png("./Figures/fig_heatmap.png",res=300, width=2000,height = 2000)
+ggplot(z_p_combined[lake=="Lawson Lake"], aes(x=parasite, y=MHC, fill=z)) +
+  geom_tile() + theme_bw() + coord_equal() +
+  scale_fill_distiller(palette="RdBu", direction=1,na.value = "grey80") +
+  labs(x="Parasite species", y="MHC alleles",title = "Lawson Lake") +
+  guides(fill=guide_colorbar("z value")) +
+  theme(axis.text.x = element_text(angle = 90), axis.ticks = element_blank())
+dev.off()
+
+
+
+MHC_prevalence_bylake_df<-as.data.frame(MHC_prevalence_bylake[,2:27])
+rownames(MHC_prevalence_bylake_df)<-MHC_prevalence_bylake[,MHC_name]
+MHC_prevalence_bylake_df<-setDT(as.data.frame.table(as.matrix(MHC_prevalence_bylake_df)))
+setnames(MHC_prevalence_bylake_df,c("Var1","Var2","Freq"),c("MHC","lake","allele_freq"))
+
+z_MHC<-MHC_prevalence_bylake_df[z_p_combined,on=c("MHC","lake")]
+z_MHC[,allele_freq:=as.numeric(as.character(allele_freq))]
+z_MHC[,abs_z:=abs(z)]
+z_MHC[,log_P:=-log10(p)]
+  
+allele_freq_reg<-summary(lm("z~allele_freq ", data=z_MHC))
+library(mgcv)
+gam_y <- gam(z~s(allele_freq), method = "REML", data=z_MHC)
+summary(gam_y)
+gam.check(gam_y)
+
+png("./Figures/fig2a_nb.png",res=300, width=1000,height = 800)
+ggplot(data=subset(z_MHC, !is.na(z)), aes(x=allele_freq, y =z, x2 = lake))+
+  geom_point(size=0.3, color="grey30") +
+  stat_smooth(method="lm",formula= y~x, color = "black", size= 0.7, aes(group=1)) + 
+  labs(x = "Allele frequency", y = "z value") +
+  annotate(geom="text", x=0.8, y=2.5, label=paste("p=",round(allele_freq_reg$coef[2,4],5)))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous( breaks = seq(0.1,0.9,by=0.1))
+dev.off()
+
+
+for(i in unique(z_res_updated[,lake])){
+  plot_data<-z_res_updated[lake==i,]
+  plot(plot_data$allele_freq, plot_data$beta, data=plot_data, main=i)
+  plot_model<-lm(plot_data$beta~plot_data$allele_freq)
+  abline(plot_model)
+  print(c(i,summary(plot_model)$coef[2,4]))
+}
+
+#### calculate parasite-MHC combinations
+Parasite_MHC_combined<-rbindlist(lapply(seq_along(Parasite_MHC_lake),function(x) {
+  df_tem<-Parasite_MHC_lake[[x]]
+  df_tem["lake"]<-names(Parasite_MHC_lake)[[x]]
+  return(df_tem)}))
+Parasite_MHC_combined[,"combination":=as.factor(paste(Var1,Var2,sep="_"))]
+freq_combination<-table(Parasite_MHC_combined[,combination])
+freq_combination<-sort(freq_combination[freq_combination>1],decreasing=T)
+freq_combination_df<-as.data.frame(t(sapply(names(freq_combination), function(x) unlist(strsplit(x,split="_prot_")))))
+freq_combination_df["No.lakes"]<-freq_combination
+freq_combination_df<-setDT(freq_combination_df,keep.rownames = T)
+freq_combination_by_parasite<-freq_combination_df[,c("combinations"=list(list(rn))),by=V1]
+setnames(freq_combination_by_parasite,"V1","parasite")
+
+comb_fits<-list()
+comb_fits_res<-list()
+anova_res<-list()
+for(comb in freq_combination_df[,rn]){
+  tryCatch({
+  Par_temp<-as.character(Parasite_MHC_combined[combination==comb,Var1[1]])
+  MHC_allele_temp<-as.character(Parasite_MHC_combined[combination==comb,Var2[1]])
+  lakes_temp<-Parasite_MHC_combined[combination==comb,lake]
+  MHC_temp<-MHC_protein_cleaned[site_name %in% lakes_temp,c(Par_temp,MHC_allele_temp,"log_std_length","site_name"),with=F]
+  comb_fits[[comb]]<-glm.nb(paste0(Par_temp,"~ log_std_length + site_name +",MHC_allele_temp,"+ site_name*",MHC_allele_temp),
+                         link=log,data=MHC_temp)
+  anova_temp<-anova(comb_fits[[comb]], test = "Chisq")
+  anova_res[[comb]]<- c(anova_temp[4:5,"Deviance"]/anova_temp[1,"Resid. Dev"],anova_temp[4:5,"Pr(>Chi)"])
+  comb_fits_res[[comb]]<-as.matrix(c(p=summary(comb_fits[[comb]])$coef[,4],coef=summary(comb_fits[[comb]])$coef[,1], z=summary(comb_fits[[comb]])$coef[,3]))
+  },error=function(e){cat("ERROR :",conditionMessage(e),comb, "\n")})
+}
+
+div_per_res<-as.data.frame(do.call(rbind, anova_res))
+colnames(div_per_res)<-c("D_a","D_as","p_a","p_as")
+div_per_res$p_a.adjust<-p.adjust(div_per_res$p_a,method = "fdr", n=nrow(div_per_res))
+div_per_res$p_as.adjust<-p.adjust(div_per_res$p_as,method = "fdr", n=nrow(div_per_res))
+div_per_res$col<-"grey75"
+div_per_res$log_D_a<-log10(div_per_res$D_a*100)
+div_per_res$log_D_as<-log10(div_per_res$D_as*100)
+div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"purple"
+div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust>=0.05),"col"]<-"red"
+div_per_res[which(div_per_res$p_a.adjust>=0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"blue"
+
+plot(div_per_res[,"D_as"]~div_per_res[,"D_a"], col=div_per_res$col, ylab = "allele*site deviance %", xlab="allele deviance %")
+#abline(lm(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"]))
+abline(0,1)
+
+png("./Figures/fig2b_nb.png", res = 300, width = 1000, height =800)
+ggplot(div_per_res, aes(x = D_a*100, y = D_as*100)) + 
+  geom_point(size = 0.3, color = div_per_res$col) + 
+  labs(x = "Percentage of Deviation\n explained by MHC", y = "Percentage of Deviation\n explained by MHC * site") +
+  geom_abline(intercept = 0, slope = 1, color="black", linetype="dashed", size=0.5) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous(limits = c(0,15)) + 
+  scale_y_continuous(limits = c(0,15))
+dev.off()
+
+png("./Figures/fig2b_log_0.01.png", res = 300, width = 1000, height =800)
+ggplot(div_per_res, aes(x = log_D_a, y = log_D_as)) + 
+  geom_point(size = 0.7, color = div_per_res$col) + 
+  labs(x = "Percentage of Deviation\n explained by MHC (log scale)", y = "Pergentage of Deviation\n explained by MHC * site (log scale)") +
+  geom_abline(intercept = 0, slope = 1, color="black", linetype="dashed", size=0.5) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_continuous(limits = c(-2,2)) + 
+  scale_y_continuous(limits = c(-2,2))
+dev.off()
+
+# select the significant interaction effect of each parasite
+lapply(freq_combination_by_parasite[1:2,combinations], function(x){
+  lapply(comb_fits_res[unlist(x)], function(y) {
+    temp<-as.data.frame(y)
+    temp[grepl("^p.prot",rownames(temp)) & temp["V1"]<0.05,,drop=F]})
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Parasite_reg<-names(sort(table(unlist(Parasite_name_lake)),decreasing=TRUE)[1:10])
+sort(table(unlist(MHC_name_lake)),decreasing=TRUE)[1:10]
+
+for(par in Parasite_reg){
+  
+}
+
+
+# cormat : matrix of the correlation coefficients
+# pmat : matrix of the correlation p-values
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+  )
+}
+  
 ############ Mantel test of matrix distance between parasite and MHC ################
 
 P_dist<-dist(t(as.matrix(Parasite_prevalence_bylake[,-1],label=TRUE)))
@@ -214,15 +540,15 @@ intersect(Lake_name,names_to_correct)
 colnames(genomic_dist)<-names_to_correct
 rownames(genomic_dist)<-names_to_correct
 flip_value_to_triangular<-function(M){
-    M2<-M
-    for(i in 1:dim(M)[1]){
-      for(j in 1:dim(M)[2]){
-        if(i<j & is.na(M[j,i]) ){
-          M[j,i]<-M2[i,j]
-          M[i,j]<-NA
-        }
+  M2<-M
+  for(i in 1:dim(M)[1]){
+    for(j in 1:dim(M)[2]){
+      if(i<j & is.na(M[j,i]) ){
+        M[j,i]<-M2[i,j]
+        M[i,j]<-NA
       }
     }
+  }
   return(M)
 }
 genomic_dist_corrected<-as.dist(flip_value_to_triangular(genomic_dist[Lake_name,Lake_name]))
@@ -235,268 +561,8 @@ class(swim_dist)<-"numeric"
 swim_dist_corrected<-as.dist(flip_value_to_triangular(swim_dist[Lake_name,Lake_name]))
 
 # getting pcnm vectors from genomic, swimming and parasite distance matrices
-library(vegan)
-pcnm_parasite<-pcnm(P_dist)$vectors
-pcnm_genome<-pcnm(genomic_dist_corrected)$vectors
-pcnm_swim<-pcnm(swim_dist_corrected)$vectors
-pcnm_mhc<-pcnm(M_dist)
-
-
-
-
-
-############ Regression ############
-
-# regression between lake averages of MHC and parasite
-MHC_parasite_avg<-MHC_protein_cleaned[,.("avg_MHC"=mean(N_aas),"avg_parasite"=mean(Parasite.richness),"site_name"=site_name[1],"lake_area"=surface_area_ha[1],"benthicdiet"=mean(benthicdiet.score,na.rm=T)),by="site_ID"]
-summary(lm(avg_MHC~avg_parasite,data=MHC_parasite_avg))
-
-png("./Figures/fig1b.png",res=300, width=1000,height = 800)
-ggplot(MHC_parasite_avg, aes(x=avg_parasite, y =avg_MHC)) + 
-  geom_point(size=0.5) +
-  stat_smooth(method="lm",formula= y~x, color = "black", size= 1) + 
-  labs(x = "Mean value of parasite richness", y = "Mean number of MHC allelels") +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black"))
-dev.off()
-
-
-
-
-# regression between MHC diversity and genomic heterozygosity
-het<-fread("Heterozygosity_by_site_LS45.csv")
-het[Pop=="Higgins Lake", Pop:="Higgens Lake"]
-het[Pop=="Pye Stream", Pop:="Pye Creek"]
-het[Pop=="Pye Estuary", Pop:="Pye Outlet"]
-MHC_het<-het[MHC_parasite_avg,on="Pop==site_name"]
-summary(lm(MHC_het$avg_MHC~MHC_het$MeanHet))
-summary(lm(avg_MHC~MeanHet + avg_parasite + lake_area + benthicdiet, data=MHC_het))
-
-png("./Figures/fig_MHC_het.png",res=300, width=1000,height = 800)
-ggplot(MHC_het, aes(x=MeanHet, y =avg_MHC)) + 
-  geom_point(size=0.5) +
-  stat_smooth(method="lm",formula= y~x, color = "black", size= 1) + 
-  labs(x = "Mean heterozygosity", y = "Mean number of MHC allelels") +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black"))
-dev.off()
-
-
-# phylogeny
-site_Fst<-fread("PairwiseFst_LS45All.csv")
-NJ_tree<-njs(as.matrix(as.numeric(site_Fst)))
-
-
-# Simple glm
-MHC_protein_subset<-MHC_protein_cleaned[,c(MHC_name,Parasite_name),with=F]
-# fit glm for all lakes
-fits <- lapply(Parasite_name,
-               function(y)glm(paste(y , paste("~", (paste(MHC_name, collapse = " + ")))),data=MHC_protein_subset,family = gaussian()))
-
-
-# GLM with regularization and sparse matrix
-
-Parasite_name_bi = paste("bi", Parasite_name, sep = ".")
-MHC_protein_cleaned[,c(Parasite_name_bi) := lapply(.SD, function(x) as.numeric(x>0,na.rm=T)),.SDcols=Parasite_name]
-
-y_train <- as.matrix(MHC_protein_cleaned[,bi.Unionidae_internal])
-x_train <- sparse.model.matrix(~ . -1, data=MHC_protein_cleaned[,..MHC_name])
-
-# For example for logistic regression using L1 norm (lasso) 
-cv.fit <- cv.glmnet(x=x_train, y=y_train, family='binomial', alpha=1, nfolds=5, parallel=TRUE)
-
-plot(cv.fit)
-
-# lm with single MHC as dependent variable
-MHC_name_lake<-list()
-Parasite_name_lake<-list()
-lake_fits<-list()
-P_res<-list()
-Z_res<-list()
-Parasite_MHC_lake<-list()
-
-for(lake in Lake_name){
-  MHC_name_lake[[lake]]<-unlist(MHC_prevalence_bylake[get(lake)>0.05 & get(lake)<0.95,MHC_name])
-  Parasite_name_lake[[lake]]<-unlist(Parasite_prevalence_bylake[get(lake)>0.05 & get(lake)<0.95,Parasite_name])
-  MHC_temp<-MHC_protein_cleaned[site_name==lake,c(MHC_name_lake[[lake]],Parasite_name_lake[[lake]],"log_std_length"),with=F]
-  #MHC_temp[,(Parasite_name_lake[[lake]]):=lapply(.SD, function(x) as.numeric(x>0,na.rm=T)),.SDcols=Parasite_name_lake[[lake]]]
-  
-  temp_mat<-matrix(nrow = length(Parasite_name_lake[[lake]]),
-                   ncol = length(MHC_name_lake[[lake]]),
-                   dimnames = list(Parasite_name_lake[[lake]],MHC_name_lake[[lake]]))
-  z_temp<-temp_mat
-  p_temp<-temp_mat
-  for(par in Parasite_name_lake[[lake]]){
-    temp_fit<-list()
-    tryCatch({
-      temp_fit <-lapply(MHC_name_lake[[lake]],function(x) glm.nb(paste0(par,"~ log_std_length +",x),link=log,data=MHC_temp))
-      z_temp[par,]<-unlist(lapply(temp_fit, function(x) z=summary(x)$coef[3,3]))
-      p_temp[par,]<-unlist(lapply(temp_fit, function(x) p=summary(x)$coef[3,4]))
-    }, error=function(e){cat("ERROR :",conditionMessage(e),lake,par, "\n")})
-  }
-  P_res[[lake]]<-p_temp
-  Z_res[[lake]]<-z_temp
-  Parasite_MHC_lake[[lake]]<-expand.grid(Parasite_name_lake[[lake]],MHC_name_lake[[lake]])
- 
-  #cor_temp<-rcorr(as.matrix(MHC_temp))
-  #res_cor[[lake]]<-cor_temp
-  #corrplot(cor_temp$r[MHC_name_lake[[lake]],Parasite_name_lake[[lake]]], type="full", order="original", 
-           #p.mat = cor_temp$P[MHC_name_lake[[lake]],Parasite_name_lake[[lake]]], sig.level = 0.05, insig = "blank",
-           #cl.lim=c(-1,1), col=colorRampPalette(c("blue","white","red"))(200))
-}
-
-p_res_updated<-do.call(rbind,lapply(P_res,as.data.frame.table))
-p_res_updated[,"lake"]<-sub("\\..*","", rownames(p_res_updated))
-p_res_updated<-setDT(p_res_updated)
-setnames(p_res_updated,c("Var1","Var2","Freq"),c("parasite","MHC","p"))
-
-z_res_updated<-do.call(rbind,lapply(Z_res,as.data.frame.table))
-z_res_updated[,"lake"]<-sub("\\..*","", rownames(z_res_updated))
-z_res_updated<-setDT(z_res_updated)
-setnames(z_res_updated,c("Var1","Var2","Freq"),c("parasite","MHC","z"))
-
-z_p_combined<-z_res_updated[p_res_updated,on=c("lake","parasite","MHC")]
-
-# test some models
-pois<-summary(glm(formula=Diplostomum_spp2~log_std_length+prot_825,family="poisson",data=MHC_protein_cleaned[site_name=="Lawson Lake"]))
-nb<-summary(glm.nb(formula=Diplostomum_spp2~log_std_length+prot_825,link=log,data=MHC_protein_cleaned[site_name=="Lawson Lake"]))
-ggplot(aes(x=prot_825,y=Diplostomum_spp2),data=MHC_protein_cleaned[site_name=="Lawson Lake"]) +
-  geom_jitter(width=0.1, height=0.05) +
-  labs(title = "Lawson Lake, z=-3.11")
-
-MHC_prevalence_bylake_df<-as.data.frame(MHC_prevalence_bylake[,2:27])
-rownames(MHC_prevalence_bylake_df)<-MHC_prevalence_bylake[,MHC_name]
-MHC_prevalence_bylake_df<-setDT(as.data.frame.table(as.matrix(MHC_prevalence_bylake_df)))
-setnames(MHC_prevalence_bylake_df,c("Var1","Var2","Freq"),c("MHC","lake","allele_freq"))
-
-z_MHC<-MHC_prevalence_bylake_df[z_p_combined,on=c("MHC","lake")]
-z_MHC[,allele_freq:=as.numeric(as.character(allele_freq))]
-z_MHC[,abs_z:=abs(z)]
-  
-allele_freq_reg<-summary(lm("p~allele_freq", data=z_MHC))
-
-png("./Figures/fig2a.png",res=300, width=1000,height = 800)
-ggplot(z_MHC, aes(x=allele_freq, y =p, x2 = lake)) + 
-  geom_point(size=0.3, color="grey30") +
-  stat_smooth(method="lm",formula= y~x, color = "black", size= 1, aes(group=1)) + 
-  labs(x = "Allele frequency", y = "p value", title=paste("p=",round(allele_freq_reg$coef[2,4],5))) +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
-  scale_x_continuous( breaks = seq(0.1,0.9,by=0.1))
-dev.off()
-
-
-for(i in unique(z_res_updated[,lake])){
-  plot_data<-z_res_updated[lake==i,]
-  plot(plot_data$allele_freq, plot_data$beta, data=plot_data, main=i)
-  plot_model<-lm(plot_data$beta~plot_data$allele_freq)
-  abline(plot_model)
-  print(c(i,summary(plot_model)$coef[2,4]))
-}
-
-#### calculate parasite-MHC combinations
-Parasite_MHC_combined<-rbindlist(lapply(seq_along(Parasite_MHC_lake),function(x) {
-  df_tem<-Parasite_MHC_lake[[x]]
-  df_tem["lake"]<-names(Parasite_MHC_lake)[[x]]
-  return(df_tem)}))
-Parasite_MHC_combined[,"combination":=as.factor(paste(Var1,Var2,sep="_"))]
-freq_combination<-table(Parasite_MHC_combined[,combination])
-freq_combination<-sort(freq_combination[freq_combination>1],decreasing=T)
-freq_combination_df<-as.data.frame(t(sapply(names(freq_combination), function(x) unlist(strsplit(x,split="_prot_")))))
-freq_combination_df["No.lakes"]<-freq_combination
-freq_combination_df<-setDT(freq_combination_df,keep.rownames = T)
-freq_combination_by_parasite<-freq_combination_df[,c("combinations"=list(list(rn))),by=V1]
-setnames(freq_combination_by_parasite,"V1","parasite")
-
-comb_fits<-list()
-comb_fits_res<-list()
-anova_res<-list()
-for(comb in freq_combination_df[,rn]){
-  Par_temp<-as.character(Parasite_MHC_combined[combination==comb,Var1[1]])
-  MHC_allele_temp<-as.character(Parasite_MHC_combined[combination==comb,Var2[1]])
-  lakes_temp<-Parasite_MHC_combined[combination==comb,lake]
-  MHC_temp<-MHC_protein_cleaned[site_name %in% lakes_temp,c(Par_temp,MHC_allele_temp,"log_std_length","site_name"),with=F]
-  comb_fits[[comb]]<-glm(paste0(Par_temp,"~ log_std_length + site_name +",MHC_allele_temp,"+ site_name*",MHC_allele_temp),
-                         family="poisson",data=MHC_temp)
-  anova_temp<-anova(comb_fits[[comb]], test = "Chisq")
-  anova_res[[comb]]<- c(anova_temp[4:5,"Deviance"]/anova_temp[1,"Resid. Dev"],anova_temp[4:5,"Pr(>Chi)"])
-  comb_fits_res[[comb]]<-as.matrix(c(p=summary(comb_fits[[comb]])$coef[,4],coef=summary(comb_fits[[comb]])$coef[,1], z=summary(comb_fits[[comb]])$coef[,3]))
-}
-
-div_per_res<-as.data.frame(do.call(rbind, anova_res))
-colnames(div_per_res)<-c("D_a","D_as","p_a","p_as")
-div_per_res$p_a.adjust<-p.adjust(div_per_res$p_a,method = "fdr", n=nrow(div_per_res))
-div_per_res$p_as.adjust<-p.adjust(div_per_res$p_as,method = "fdr", n=nrow(div_per_res))
-div_per_res$col<-"grey75"
-div_per_res$log_D_a<-log10(div_per_res$D_a*100)
-div_per_res$log_D_as<-log10(div_per_res$D_as*100)
-div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"purple"
-div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust>=0.05),"col"]<-"red"
-div_per_res[which(div_per_res$p_a.adjust>=0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"blue"
-
-plot(div_per_res[,"D_as"]~div_per_res[,"D_a"], col=div_per_res$col, ylab = "allele*site deviance %", xlab="allele deviance %")
-#abline(lm(div_per_res[,"log_D_as"]~div_per_res[,"log_D_a"]))
-abline(0,1)
-
-png("./Figures/fig2b.png", res = 300, width = 1000, height =800)
-ggplot(div_per_res, aes(x = D_a*100, y = D_as*100)) + 
-  geom_point(size = 0.3, color = div_per_res$col) + 
-  labs(x = "Percentage of Deviation\n explained by MHC", y = "Percentage of Deviation\n explained by MHC * site") +
-  geom_abline(intercept = 0, slope = 1, color="black", linetype="dashed", size=0.5) +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
-  scale_x_continuous(limits = c(0,15)) + 
-  scale_y_continuous(limits = c(0,15))
-dev.off()
-
-png("./Figures/fig2b_log_0.01.png", res = 300, width = 1000, height =800)
-ggplot(div_per_res, aes(x = log_D_a, y = log_D_as)) + 
-  geom_point(size = 0.7, color = div_per_res$col) + 
-  labs(x = "Percentage of Deviation\n explained by MHC (log scale)", y = "Pergentage of Deviation\n explained by MHC * site (log scale)") +
-  geom_abline(intercept = 0, slope = 1, color="black", linetype="dashed", size=0.5) +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
-  scale_x_continuous(limits = c(-2,2)) + 
-  scale_y_continuous(limits = c(-2,2))
-dev.off()
-
-# select the significant interaction effect of each parasite
-lapply(freq_combination_by_parasite[1:2,combinations], function(x){
-  lapply(comb_fits_res[unlist(x)], function(y) {
-    temp<-as.data.frame(y)
-    temp[grepl("^p.prot",rownames(temp)) & temp["V1"]<0.05,,drop=F]})
-})
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Parasite_reg<-names(sort(table(unlist(Parasite_name_lake)),decreasing=TRUE)[1:10])
-sort(table(unlist(MHC_name_lake)),decreasing=TRUE)[1:10]
-
-for(par in Parasite_reg){
-  
-}
-
-
-# cormat : matrix of the correlation coefficients
-# pmat : matrix of the correlation p-values
-flattenCorrMatrix <- function(cormat, pmat) {
-  ut <- upper.tri(cormat)
-  data.frame(
-    row = rownames(cormat)[row(cormat)[ut]],
-    column = rownames(cormat)[col(cormat)[ut]],
-    cor  =(cormat)[ut],
-    p = pmat[ut]
-  )
-}
-  
+# library(vegan)
+# pcnm_parasite<-pcnm(P_dist)$vectors
+# pcnm_genome<-pcnm(genomic_dist_corrected)$vectors
+# pcnm_swim<-pcnm(swim_dist_corrected)$vectors
+# pcnm_mhc<-pcnm(M_dist)
