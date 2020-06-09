@@ -299,9 +299,9 @@ nb<-summary(glm.nb(formula=Diplostomum_spp2~log_std_length+prot_825,link=log,dat
 
 png("./Figures/fig_eg_heatmap.png",res=300, width=1000,height = 800)
 ggplot(aes(as.factor(x=prot_577),y=Unionidae_internal),data=MHC_protein_cleaned[site_name=="Lawson Lake"]) +
-  geom_jitter(width=0.1, height=0.05, size=0.5) +
-  geom_smooth(method="lm",formula= y~x, color = "black", size= 1,aes(group=1)) + 
-  labs(title = "Lawson Lake", x = "prot_577") +
+  geom_jitter(width=0.1, height=0.05, size=0.5, col="#B2182B") +  ## for eg2: #3372B3
+  geom_smooth(method="lm",formula= y~x, color = "#B2182B", size= 1,aes(group=1)) + 
+  labs(title = "Z = -3.82", x = "prot_577", y = "Unionidae") +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         panel.background = element_blank(), axis.line = element_line(colour = "black")) +
   scale_x_discrete( breaks = c("0","1"),labels=c("absent","present"))
@@ -309,7 +309,7 @@ dev.off()
 ################## plot a heat map for a particular lake
 
 png("./Figures/fig_heatmap.png",res=300, width=2000,height = 2000)
-ggplot(z_p_combined[lake=="Lawson Lake"], aes(x=parasite, y=MHC, fill=z)) +
+g<-ggplot(z_p_combined[lake=="Lawson Lake"], aes(x=parasite, y=MHC, fill=z)) +
   geom_tile() + theme_bw() + coord_equal() +
   scale_fill_distiller(palette="RdBu", direction=1,na.value = "grey80") +
   labs(x="Parasite species", y="MHC alleles",title = "Lawson Lake") +
@@ -317,7 +317,10 @@ ggplot(z_p_combined[lake=="Lawson Lake"], aes(x=parasite, y=MHC, fill=z)) +
   theme(axis.text.x = element_text(angle = 90), axis.ticks = element_blank())
 dev.off()
 
-
+# g_color<-ggplot_build(g)
+# g_data<-setDT(g_color$data[[1]])
+# g_data[x==12&y==10,]
+# g_data[x==12&y==17,]
 
 MHC_prevalence_bylake_df<-as.data.frame(MHC_prevalence_bylake[,2:27])
 rownames(MHC_prevalence_bylake_df)<-MHC_prevalence_bylake[,MHC_name]
@@ -337,33 +340,33 @@ gam.check(gam_y)
 
 png("./Figures/fig2a_nb.png",res=300, width=1000,height = 800)
 ggplot(data=subset(z_MHC, !is.na(z)), aes(x=allele_freq, y =z, x2 = lake))+
-  geom_point(size=0.3, color="grey30") +
+  geom_point(size=0.2, color="grey50") +
   stat_smooth(method="lm",formula= y~x, color = "black", size= 0.7, aes(group=1)) + 
-  labs(x = "Allele frequency", y = "z value") +
-  annotate(geom="text", x=0.8, y=2.5, label=paste("p=",round(allele_freq_reg$coef[2,4],5)))+
+  labs(x = "Allele prevalence", y = "Effect size (Z value)") +
+  annotate(geom="text", x=0.8, y=2.7, label=paste("p=",round(allele_freq_reg$coef[2,4],2)))+
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         panel.background = element_blank(), axis.line = element_line(colour = "black")) +
   scale_x_continuous( breaks = seq(0.1,0.9,by=0.1))
 dev.off()
 
 
-for(i in unique(z_res_updated[,lake])){
-  plot_data<-z_res_updated[lake==i,]
-  plot(plot_data$allele_freq, plot_data$beta, data=plot_data, main=i)
-  plot_model<-lm(plot_data$beta~plot_data$allele_freq)
-  abline(plot_model)
-  print(c(i,summary(plot_model)$coef[2,4]))
-}
+# for(i in unique(z_res_updated[,lake])){
+#   plot_data<-z_res_updated[lake==i,]
+#   plot(plot_data$allele_freq, plot_data$beta, data=plot_data, main=i)
+#   plot_model<-lm(plot_data$beta~plot_data$allele_freq)
+#   abline(plot_model)
+#   print(c(i,summary(plot_model)$coef[2,4]))
+# }
 
 #### calculate parasite-MHC combinations
 Parasite_MHC_combined<-rbindlist(lapply(seq_along(Parasite_MHC_lake),function(x) {
   df_tem<-Parasite_MHC_lake[[x]]
   df_tem["lake"]<-names(Parasite_MHC_lake)[[x]]
   return(df_tem)}))
-Parasite_MHC_combined[,"combination":=as.factor(paste(Var1,Var2,sep="_"))]
+Parasite_MHC_combined[,"combination":=as.factor(paste(Var1,Var2,sep="-"))]
 freq_combination<-table(Parasite_MHC_combined[,combination])
 freq_combination<-sort(freq_combination[freq_combination>1],decreasing=T)
-freq_combination_df<-as.data.frame(t(sapply(names(freq_combination), function(x) unlist(strsplit(x,split="_prot_")))))
+freq_combination_df<-as.data.frame(t(sapply(names(freq_combination), function(x) unlist(strsplit(x,split="-prot_")))))
 freq_combination_df["No.lakes"]<-freq_combination
 freq_combination_df<-setDT(freq_combination_df,keep.rownames = T)
 freq_combination_by_parasite<-freq_combination_df[,c("combinations"=list(list(rn))),by=V1]
@@ -390,7 +393,7 @@ div_per_res<-as.data.frame(do.call(rbind, anova_res))
 colnames(div_per_res)<-c("D_a","D_as","p_a","p_as")
 div_per_res$p_a.adjust<-p.adjust(div_per_res$p_a,method = "fdr", n=nrow(div_per_res))
 div_per_res$p_as.adjust<-p.adjust(div_per_res$p_as,method = "fdr", n=nrow(div_per_res))
-div_per_res$col<-"grey75"
+div_per_res$col<-"grey50"
 div_per_res$log_D_a<-log10(div_per_res$D_a*100)
 div_per_res$log_D_as<-log10(div_per_res$D_as*100)
 div_per_res[which(div_per_res$p_a.adjust<0.05 & div_per_res$p_as.adjust<0.05),"col"]<-"purple"
@@ -423,16 +426,21 @@ ggplot(div_per_res, aes(x = log_D_a, y = log_D_as)) +
   scale_y_continuous(limits = c(-2,2))
 dev.off()
 
-# select the significant interaction effect of each parasite
-lapply(freq_combination_by_parasite[1:2,combinations], function(x){
-  lapply(comb_fits_res[unlist(x)], function(y) {
-    temp<-as.data.frame(y)
-    temp[grepl("^p.prot",rownames(temp)) & temp["V1"]<0.05,,drop=F]})
-})
 
+comb_plot<-"Schistocephalus-prot_644"
+lake_plot<-as.factor(Parasite_MHC_combined[combination==comb_plot,lake])
+par_plot<-as.character(Parasite_MHC_combined[combination==comb_plot,Var1[1]])
+MHC_plot<-as.character(Parasite_MHC_combined[combination==comb_plot,Var2[1]])
 
-
-
+#png("./Figures/fig2b_eg.png",res=300, width=1000,height = 800)
+ggplot(aes(x=as.factor(get(MHC_plot)),y=get(par_plot),color=site_name),data=MHC_protein_cleaned[site_name %in%lake_plot,]) +
+  geom_jitter(width=0.1, height=0.05, size=0.5) +  
+  geom_smooth(method="lm",formula= y~x, size= 1,aes(group=site_name)) + 
+  labs(title = "", x = MHC_plot, y = par_plot) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  scale_x_discrete( breaks = c("0","1"),labels=c("absent","present"))
+#dev.off()
 
 
 
