@@ -263,11 +263,11 @@ dev.off()
 # g_data[x==12&y==17,]
 
 # plot examples for the heatmap
-png("./Figures/fig_eg1_heatmap.png",res=300, width=500,height = 800)
-ggplot(aes(as.factor(x=prot_577),y=Unionidae),data=MHC_protein_cleaned[site_name=="Lawson Lake"]) +
-  geom_jitter(width=0.1, height=0.05, size=0.5, col="#B2182B") +  ## for eg2: #3372B3 eg1:#B2182B
-  geom_smooth(method="lm",formula= y~x, color = "#B2182B", size= 1,aes(group=1), se=F) + 
-  labs(title = "", x = "prot_577", y = "No. of Unionidae parasite\n per fish") +
+png("./Figures/fig_eg2_heatmap.png",res=300, width=700,height = 800)
+ggplot(aes(as.factor(x=prot_673),y=Unionidae),data=MHC_protein_cleaned[site_name=="Lawson Lake"]) +
+  geom_jitter(width=0.1, height=0.05, size=0.5, col="#3372B3") +  ## for eg2: #3372B3 eg1:#B2182B
+  geom_smooth(method="lm",formula= y~x, color = "#3372B3", size= 1,aes(group=1)) + 
+  labs(title = "", x = "prot_673", y = "No. of Unionidae parasite\n per fish") +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         panel.background = element_blank(), axis.line = element_line(colour = "black")) +
   scale_x_discrete( breaks = c("0","1"),labels=c("absent","present")) + 
