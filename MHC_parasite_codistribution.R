@@ -74,10 +74,40 @@ MHC_protein_cleaned<-MHC_protein_cleaned[,if(.N>1) .SD, by="site_name"]
   
   # convert MHC copy data into presence/absence
   MHC_protein_cleaned[,(MHC_name):=lapply(.SD, function(x) as.numeric(x>0,na.rm=T)),.SDcols=MHC_name]
+} 
+  # add supertype info
+{
+    # aas_seq <- fread("./6. R scripts to genotype fish and produce metadata/6.2 Bayesian analysis/6.2.1. Input/aas_to_align.csv")
+    # aas_seq_selected<-aas_seq[aa.ID %in% MHC_name]
+    # aas_abbv<- fread("./Supertype/aas_abbreviation.csv")
+    # aas_prop<- fread("./Supertype/aas_property.csv")
+    # aas_prop_short<-aas_prop[aas_abbv,on=c("abbrev"="Abbreviation (3 Letter)")][!is.na(z1)]
+    # aas_prop_short[,(4:8):=lapply(.SD, function(x){as.numeric(gsub("_","-",x))}),.SDcols=4:8]
+    # setnames(aas_prop_short,"Abbreviation (1 Letter)","Abbrev_1")
+    # # pos<-c(7,9,14,16,26,32,38,39,44,46,49,56) # 1st run
+    # # pos<-c(7,14,26,32,39,44,46,49,56,65) # 2nd run
+    # # pos<-c(7,9,14,16,26,32,38,39,44,46,49,56,65) # either significant
+    # pos<-c(7,14,26,32,39,44,46,49,56) #both significant
+    # aas_seq_selected[,paste0("pos",pos):=lapply(pos,function(x) substr(aa.sequence,x,x))]
+    # 
+    # aas_matrix<-as.matrix(aas_seq_selected[,sapply(.SD, function(x){aas_prop_short[match(x, aas_prop_short[,Abbrev_1]),.(z1,z2,z3,z4,z5)]}),.SDcols=3:11])
+    # #dim(aas_matrix)<-c(1115, 5, 9)
+    # dimnames(aas_matrix)<-list(aas_seq_selected[,aa.ID])
+    # 
+    # library(adegenet)
+    # grp<-find.clusters.matrix(aas_matrix,choose.n.clust=F, criterion="diffNgroup") # 111 groups
+    # #grp<-find.clusters.matrix(aas_matrix,max.n.clust=120)
+    # dapc1 <- dapc.matrix(aas_matrix, grp$grp) # using 20PC and 15 discriminant analysis, the latterwas determined by optim.a.score function
+    # prot_supertype<-dapc1$grp
+  
+# for(i in 1:length(levels(prot_supertype))){
+#   MHC_protein_cleaned[,paste0("supertype_",i):=as.numeric(rowSums(.SD)>0),.SDcols=names(prot_supertype[prot_supertype==as.character(i)]) ]
+# }
+# 
+# supertype_name<-paste0("supertype_",levels(prot_supertype))
+# MHC_protein_cleaned[,supertype_richness:=rowSums(.SD)>0,.SDcols=(..supertype_name)]
 }
-
-
-
+rm(MHC_protein)
 ### calculate paraste and MHC prevalance for each site ###
 {
   # choose parasite in each lake that has frequency ranging from 0.05-0.95
@@ -95,6 +125,14 @@ MHC_protein_cleaned<-MHC_protein_cleaned[,if(.N>1) .SD, by="site_name"]
   MHC_prevalence_bylake<-MHC_prevalence_bylake[-1,]
   MHC_prevalence_bylake[,lapply(.SD, function(x) sum(x>0.05 & x <0.95)),.SDcols=2:27]
   setnames(MHC_prevalence_bylake,"site_name","MHC_name")
+  
+  # choose supertype in each lake that has frequency ranging from 0.05-0.95
+  suspertype_prevalence_bylake<-MHC_protein_cleaned[,lapply(.SD, function(x) sum(x>0,na.rm=T)/(.N)), by='site_name',.SDcols=supertype_name]
+  suspertype_prevalence_bylake<-data.table(MHC_name = names(suspertype_prevalence_bylake), transpose(suspertype_prevalence_bylake))
+  colnames(suspertype_prevalence_bylake)<-as.character(unlist(suspertype_prevalence_bylake[1,]))
+  suspertype_prevalence_bylake<-suspertype_prevalence_bylake[-1,]
+  suspertype_prevalence_bylake[,lapply(.SD, function(x) sum(x>0.05 & x <0.95)),.SDcols=2:27]
+  setnames(suspertype_prevalence_bylake,"site_name","supertype_name")
 }
 
 
@@ -102,6 +140,7 @@ MHC_protein_cleaned<-MHC_protein_cleaned[,if(.N>1) .SD, by="site_name"]
 summary(MHC_protein_cleaned$DEPTH_ALLELES)
 summary(MHC_protein_cleaned$N_aas)
 summary(MHC_protein_cleaned$Parasite.richness)
+summary(MHC_protein_cleaned$supertype_richness)
 
 N_samples<-MHC_protein_cleaned[,.N,by=site_ID][,N]
 sd(N_samples)
@@ -138,11 +177,11 @@ no_int_model<-glm( Parasite.richness ~ log_std_length + x , family = "poisson", 
 residualrichness <- resid( glmer( Parasite.richness ~ log_std_length + (1|site_name) , "poisson", data= MHC_protein_cleaned,na.action=na.exclude))
 MHC_protein_cleaned[,residual_rich:=residualrichness]
 
-summary(lm(residual_rich~N_aas+I(N_aas^2),data=MHC_protein_cleaned[habitat_type=="Lake",]))
+summary(lm(residual_rich~N_aas+I(N_aas^2),data=MHC_protein_cleaned))
 
 # plot full data between number of MHC alleles and parasite load
 png("./Figures/fig_hd_qua.png",res = 300, width = 1000, height = 800)
-ggplot(MHC_protein_cleaned, aes(group=N_aas,x=N_aas, y=residual_rich)) + 
+ggplot(MHC_protein_cleaned, aes(group=supertype_richness,x=supertype_richness, y=residual_rich)) + 
   geom_jitter(shape=16, size = 0.2, position=position_jitter(0.2)) +
   stat_smooth(method = "lm", formula = y~x + I(x^2) , size = 1, aes(group=1), color='black') +
   stat_smooth(method = "lm", formula = y~x + I(x^2) , size = 0.1, aes(group=site_name), color='grey20',fill=NA) +
@@ -172,7 +211,17 @@ ggplot(MHC_parasite_avg, aes(x=avg_parasite, y =avg_MHC)) +
 dev.off()
 
 
-# regression between MHC diversity and genomic heterozygosity
+# regression between MHC diversity and genomic heterozygosit
+id_match<-fread("GWASFishTraitData.csv")
+het_ind<-fread("IndividualFishHeterozygosity.csv")
+het_ind<-het_ind[id_match, on="fish.id",nomatch=0L]
+MHC_het_ind<-MHC_protein_cleaned[het_ind[site_name %in% Lake_name,.(fish.id,site_name,log_mass,log_std_length, Hetscores)],on=c("site_name","log_mass","log_std_length"),nomatch=0L][,.(site_name,fish.id,fish_id,log_mass,log_std_length,Hetscores,N_aas,Parasite.richness)]
+residual_N_aas <- resid( glmer( N_aas ~ (1|site_name) , "poisson", data= MHC_het_ind,na.action=na.exclude))
+MHC_het_ind[,res_N_aas:=residual_N_aas]
+summary(lm(res_N_aas~Hetscores,data=MHC_het_ind))
+summary(glm(N_aas~Hetscores+site_name,family="poisson",data=MHC_het_ind))
+summary(glmer( N_aas ~ Hetscores +   (N_aas|site_name), family = "poisson",data=MHC_het_ind))
+
 het<-fread("Heterozygosity_by_site_LS45.csv")
 het[Pop=="Higgins Lake", Pop:="Higgens Lake"]
 het[Pop=="Pye Stream", Pop:="Pye Creek"]
@@ -193,7 +242,33 @@ ggplot(MHC_het, aes(x=MeanHet, y =avg_MHC)) +
         axis.title = element_text(size=10))
 dev.off()
 
+min_sample_size<-min(MHC_protein_cleaned[,.N,by=site_name][,N])
+repeat_times<-10
+sample<-list()
+parasite_sample<-array(dim=c(repeat_times,length(Lake_name)))
+MHC_sample<-array(dim=c(repeat_times,length(Lake_name)))
+supertype_sample<-array(dim=c(repeat_times,length(Lake_name)))
+for(i in 1:repeat_times){
+  sample[i]<-list(MHC_protein_cleaned[,.I[sample(.N,min_sample_size)],by=site_name]$V1)
+  parasite_sample[i,]<-MHC_protein_cleaned[unlist(sample[i]),lapply(.SD,function(x) as.numeric(as.logical(sum(x>0)))),.SDcols=Parasite_name,by=site_name][,rowSums(.SD),.SDcols=Parasite_name]
+  MHC_sample[i,]<-MHC_protein_cleaned[unlist(sample[i]),lapply(.SD,function(x) as.numeric(as.logical(sum(x>0)))),.SDcols=MHC_name,by=site_name][,rowSums(.SD),.SDcols=MHC_name]
+  supertype_sample[i,]<-MHC_protein_cleaned[unlist(sample[i]),lapply(.SD,function(x) as.numeric(as.logical(sum(x>0)))),.SDcols=supertype_name,by=site_name][,rowSums(.SD),.SDcols=supertype_name]
+}
+pop_parasite_rich<-colMeans(parasite_sample)
+pop_MHC_rich<-colMeans(MHC_sample)
+pop_supertype_rich<-colMeans(supertype_sample)
+pop_richness<-data.table(lake=Lake_name,parasite_rich=pop_parasite_rich,MHC_rich=pop_MHC_rich,supertype_rich=pop_supertype_rich,het=MHC_het[,MeanHet])
 
+summary(lm(supertype_rich~het,data=pop_richness))
+
+ggplot(pop_richness,aes(x=het, y =supertype_rich)) + 
+  geom_point(size=0.5) +
+  stat_smooth(method="lm",formula= y~x, color = "black", size= 1) + 
+  labs(x = "Parasite richness by population", y = "MHC allelele richness") +
+  #annotate(geom="text", x=4, y=9.5, label=paste("p =",round(popMHC_popParasite$coef[2,4],2))) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"),
+        axis.title = element_text(size=10))
 ############################################################
 # lm with single MHC as dependent variable
 MHC_name_lake<-list()
@@ -415,6 +490,7 @@ swim_dist_corrected<-as.dist(flip_value_to_triangular(swim_dist[Lake_name,Lake_n
 
 P_dist<-dist(t(as.matrix(Parasite_prevalence_bylake[,-1],label=TRUE)))
 M_dist<-dist(t(as.matrix(MHC_prevalence_bylake[,-1],label=TRUE)))
+Supertype_dist<-dist(t(as.matrix(suspertype_prevalence_bylake[,-1],label=TRUE)))
 
 library(ecodist)
 mantel(P_dist~M_dist)
